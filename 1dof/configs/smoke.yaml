@@ -1,0 +1,33 @@
+# Tiny end-to-end run against synthetic data. Verifies the plumbing on a laptop
+# in a couple of minutes, with no simulator and no downloads.
+#   python scripts/make_synthetic_data.py
+#   python -m robobench.train --config configs/smoke.yaml
+data:
+  root: data/synthetic
+  suites: [libero_object]
+  image_size: 64
+  max_demos_per_task: 4
+  lang_cache: cache/lang_synthetic.npz
+  augment: false
+
+policy:
+  chunk_size: 4
+
+model:
+  name: resnet_film_bc
+  hidden_dim: 64
+  num_layers: 2
+  num_heads: 4
+  vision_width: 16
+  num_keypoints: 16
+
+train:
+  steps: 400
+  lr: 3.0e-4
+  warmup_steps: 20
+  batch_size: 4
+  num_workers: 0
+  log_every: 10
+  ckpt_every: 30
+  amp: false
+  ema_decay: 0.99

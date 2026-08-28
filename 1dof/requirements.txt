@@ -1,0 +1,14 @@
+# Core — enough to develop and train an architecture. No simulator needed.
+torch>=2.2
+numpy>=1.24,<2.0
+h5py>=3.9
+pyyaml>=6.0
+tqdm>=4.66
+einops>=0.7
+imageio>=2.31
+
+# Language embedding cache (run once, then frozen)
+transformers>=4.40
+
+# Analysis
+scipy>=1.10

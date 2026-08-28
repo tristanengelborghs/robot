@@ -1,0 +1,50 @@
+# Every key a run can set. A config file or CLI override merges on top of this,
+# and the fully resolved result is written into the checkpoint and every results
+# file, so any number in your table traces back to the exact settings behind it.
+
+seed: 0
+device: auto            # auto | cuda | mps | cpu
+output_dir: runs
+run_name: null          # auto-derived from model/suite/seed/config-hash
+ablation: none          # none | no_lang | no_wrist | no_agentview | no_vision | no_proprio
+
+data:
+  root: data/libero
+  suites: [libero_object]
+  cameras: [agentview, wrist]
+  image_size: 128
+  max_demos_per_task: null    # null = all (~50 per task in LIBERO)
+  lang_cache: cache/lang_clip.npz
+  lang_dim: 512
+  flip_images: true           # MuJoCo renders bottom-up; applied to data AND rollouts
+  augment: true
+  crop_ratio: 0.95            # random-crop augmentation; 1.0 disables
+
+policy:
+  chunk_size: 8               # actions predicted per forward pass
+
+model:
+  name: resnet_film_bc
+  # Everything below `name` is passed straight to the model constructor.
+  hidden_dim: 256
+  num_keypoints: 64
+  num_layers: 4
+  num_heads: 8
+  dropout: 0.1
+  vision_width: 64
+  share_vision_encoder: false
+  use_film: true
+
+train:
+  steps: 60000
+  batch_size: 64
+  lr: 1.0e-4
+  weight_decay: 0.01
+  warmup_steps: 1000
+  grad_clip: 1.0
+  ema_decay: 0.999            # 0 or null disables
+  amp: true                   # bf16 autocast on CUDA
+  num_workers: 8
+  log_every: 100
+  ckpt_every: 10000
+  deterministic: true

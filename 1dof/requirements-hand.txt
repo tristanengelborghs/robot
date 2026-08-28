@@ -1,0 +1,32 @@
+# Hand tracking from real video. Only needed to run a detector on actual pixels —
+# the synthetic backend, the tests, and everything downstream of detection (filter,
+# tracker, pose, retargeting, demo writing) run on the core requirements alone.
+#
+# Installed separately for the same reason the simulator is: mediapipe pulls a large
+# native stack, and nothing about developing an architecture needs it.
+# `pip install -r requirements-hand.txt` when you have video to process.
+
+# Both bounds are load-bearing, and neither is caution.
+#
+# Lower: the legacy `mp.solutions` namespace — the one that bundled model weights
+# inside the wheel — is gone by 0.10.30. This detector targets `mediapipe.tasks`,
+# which takes an explicit model file; run `make hand-model` once to fetch it.
+#
+# Upper: mediapipe 1.0.1 aborts on macOS arm64 the moment a vision task opens its
+# graph. TensorsToDetectionsCalculator constructs a Metal helper that the CPU graph
+# never registers a service for, so the process dies inside a native CHECK:
+#
+#   F graph_service.h:139] Check failed: service_ Service is unavailable.
+#     @ -[DrishtiMetalHelper initWithCalculatorContext:]
+#     @ mediapipe::api2::TensorsToDetectionsCalculator::Open()
+#
+# It is not recoverable from Python: it fails identically in IMAGE, VIDEO and
+# explicit-CPU-delegate configurations, and MEDIAPIPE_DISABLE_GPU has no effect
+# because the wheel is built with Metal enabled. 1.0.0 is unaffected — the
+# regression is 1.0.1 specifically — so the exclusion is one release wide.
+mediapipe>=0.10.30,!=1.0.1
+
+# Webcam capture and video decode. imageio (a core dependency) reads mp4 once
+# imageio-ffmpeg is present; opencv is what actually opens a camera device.
+opencv-python>=4.9
+imageio-ffmpeg>=0.4.9

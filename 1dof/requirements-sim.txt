@@ -1,0 +1,27 @@
+# Simulator stack — only needed for eval rollouts, not for training.
+# Install AFTER requirements.txt, via scripts/setup_libero.sh.
+#
+# Every version here is pinned on purpose:
+#   * robosuite declares an unbounded `mujoco>=2.3.0`, so an unpinned install
+#     resolves to the newest mujoco, which needs Python >=3.10 and has no wheel
+#     for older interpreters — pip then falls back to a source build that wants a
+#     full C++ MuJoCo checkout (MUJOCO_PATH) and fails.
+#   * robosuite also declares an unbounded `numpy>=1.13.3` and will happily pull
+#     numpy 2.x on top of the training stack, which is built against numpy 1.x.
+#
+# mujoco 3.2.3 has wheels for both macOS-arm64 and manylinux-x86_64 on py3.10-3.12.
+numpy>=1.24,<2.0
+mujoco==3.2.3
+robosuite==1.4.1
+bddl==1.0.1
+# bddl 1.0.1 imports `future` but never declares it — undeclared transitive dep.
+future>=1.0
+
+# LIBERO's env import path needs these, but its own requirements.txt is unusable:
+# it pins numpy==1.22.4, robosuite==1.4.0 and drags in wandb/robomimic/thop for
+# LIBERO's own training code, none of which this harness uses. Installed with
+# --no-deps and these four added back by hand.
+cloudpickle==3.1.2
+easydict==1.13
+gym==0.26.2
+matplotlib==3.11.1

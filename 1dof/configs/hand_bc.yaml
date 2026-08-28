@@ -1,0 +1,49 @@
+# Behaviour cloning on human hand demos recorded with scripts/track_hands.py.
+#
+# Differences from the simulator configs, and why:
+#
+#   ablation: no_proprio    The nine proprio dimensions of a hand demo are a wrist
+#     pose, not robot joint angles. Zeroing them is what makes a policy trained here
+#     runnable on a LIBERO rollout at all, and it is recorded in the run so the
+#     comparison stays honest. Drop it only if you are training and evaluating
+#     entirely within hand demos.
+#
+#   augment / crop_ratio    Unchanged. Random cropping matters more here, not less:
+#     every frame of a hand demo comes from one fixed camera in one room, so the
+#     background is a constant the policy will otherwise memorize.
+#
+# Hand demos are a pretraining and co-training corpus, not a LIBERO substitute. The
+# number that settles whether they helped is a rollout success rate against the same
+# architecture trained without them, paired on identical initial states:
+#
+#   python -m robobench.eval  --ckpt runs/sim_only/ckpt_last.pt --episodes 50 --seed 0
+#   python -m robobench.eval  --ckpt runs/hand_pre/ckpt_last.pt --episodes 50 --seed 0
+#   python -m robobench.stats results/sim_only/libero_object_episodes.jsonl \
+#                             results/hand_pre/libero_object_episodes.jsonl
+
+ablation: no_proprio
+
+data:
+  root: data/hand
+  suites: [hand_demos]
+  cameras: [agentview, wrist]
+  image_size: 128
+  lang_cache: cache/lang_hand.npz
+
+policy:
+  chunk_size: 8
+
+model:
+  name: resnet_film_bc
+  hidden_dim: 256
+  num_layers: 4
+  num_heads: 8
+  vision_width: 64
+
+train:
+  steps: 20000
+  batch_size: 64
+  lr: 1.0e-4
+  warmup_steps: 500
+  log_every: 100
+  ckpt_every: 5000

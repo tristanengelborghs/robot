@@ -1,0 +1,46 @@
+# Every key a run can set. Files/CLI overrides merge on top; the resolved dict
+# is stamped into checkpoints and logs.
+
+seed: 0
+device: cpu           # env stepping dominates; tiny MLPs gain nothing from MPS transfer
+output_dir: runs
+run_name: null        # auto: <hand>-<goal_mode>-s<seed>-<hash>
+
+env:
+  hand: shadow
+  ctrl_dt: 0.05
+  episode_len: 200
+  goal_mode: z          # curriculum may widen to full
+  max_goal_angle: 0.5
+  success_thresh: 0.4
+  action_ema: 0.7
+  dr:
+    enabled: true
+
+# curriculum: widen z-goals as success arrives, then switch to full SO(3).
+# Gating on measured success rather than a step schedule means the curriculum
+# adapts to however much compute the run actually has.
+curriculum:
+  enabled: true
+  success_rate_to_widen: 0.3     # mean successes/episode to trigger widening
+  widen_factor: 1.5
+  max_angle_cap: 3.1416
+  switch_to_full_at: 3.0         # widen past pi -> full SO(3) goals
+
+train:
+  n_envs: 8
+  horizon: 128
+  total_steps: 2_000_000
+  lr: 3.0e-4
+  gamma: 0.998          # 10 s episodes at 20 Hz: effective horizon must cover them
+  gae_lambda: 0.95
+  clip: 0.2
+  epochs: 4
+  n_minibatches: 4
+  ent_coef: 0.003
+  vf_coef: 0.5
+  max_grad_norm: 1.0
+  target_kl: 0.02
+  hidden: [256, 256]
+  log_every: 5          # iterations
+  ckpt_every: 50

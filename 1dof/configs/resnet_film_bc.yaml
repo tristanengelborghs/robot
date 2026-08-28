@@ -1,0 +1,14 @@
+# The reference baseline: ~27M params, no pretraining, one GPU.
+# Expect roughly a day on a 4090 for the full 60k steps; the curve is mostly
+# flat well before that, so evaluate intermediate checkpoints too.
+model:
+  name: resnet_film_bc
+  hidden_dim: 256
+  num_layers: 4
+
+data:
+  suites: [libero_object]
+
+train:
+  steps: 60000
+  batch_size: 64

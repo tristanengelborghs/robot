@@ -1,0 +1,50 @@
+<!-- A three-finger claw for tests: 6 hinge joints, position actuators, named
+     fingertip bodies, a palm. It exercises every code path the real hands do
+     (attachment, actuator mapping, tactile aggregation, domain randomization)
+     while shipping inside the repo, so the test suite keeps the sibling
+     project's contract: no downloads. It is a test rig, not a good hand. -->
+<mujoco model="toy_hand">
+  <compiler angle="radian"/>
+  <default>
+    <joint damping="0.05" armature="0.001"/>
+    <geom friction="1 0.005 0.0001" density="800"/>
+    <position kp="2" ctrlrange="-1 1.4" forcerange="-3 3"/>
+  </default>
+  <worldbody>
+    <body name="palm">
+      <geom name="palm_geom" type="box" size="0.05 0.05 0.008" rgba="0.4 0.4 0.5 1"/>
+      <body name="finger_a" pos="0.045 0 0.008">
+        <joint name="a_prox" axis="0 1 0" range="-1 1.4"/>
+        <geom type="capsule" fromto="0 0 0 0 0 0.05" size="0.009"/>
+        <body name="finger_a_tip" pos="0 0 0.05">
+          <joint name="a_dist" axis="0 1 0" range="-1 1.4"/>
+          <geom name="tip_a" type="capsule" fromto="0 0 0 0 0 0.035" size="0.008"/>
+        </body>
+      </body>
+      <body name="finger_b" pos="-0.0225 0.039 0.008" euler="0 0 2.0944">
+        <joint name="b_prox" axis="0 1 0" range="-1 1.4"/>
+        <geom type="capsule" fromto="0 0 0 0 0 0.05" size="0.009"/>
+        <body name="finger_b_tip" pos="0 0 0.05">
+          <joint name="b_dist" axis="0 1 0" range="-1 1.4"/>
+          <geom name="tip_b" type="capsule" fromto="0 0 0 0 0 0.035" size="0.008"/>
+        </body>
+      </body>
+      <body name="finger_c" pos="-0.0225 -0.039 0.008" euler="0 0 -2.0944">
+        <joint name="c_prox" axis="0 1 0" range="-1 1.4"/>
+        <geom type="capsule" fromto="0 0 0 0 0 0.05" size="0.009"/>
+        <body name="finger_c_tip" pos="0 0 0.05">
+          <joint name="c_dist" axis="0 1 0" range="-1 1.4"/>
+          <geom name="tip_c" type="capsule" fromto="0 0 0 0 0 0.035" size="0.008"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <actuator>
+    <position name="act_a_prox" joint="a_prox"/>
+    <position name="act_a_dist" joint="a_dist"/>
+    <position name="act_b_prox" joint="b_prox"/>
+    <position name="act_b_dist" joint="b_dist"/>
+    <position name="act_c_prox" joint="c_prox"/>
+    <position name="act_c_dist" joint="c_dist"/>
+  </actuator>
+</mujoco>

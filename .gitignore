@@ -1,0 +1,17 @@
+# both projects
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.DS_Store
+.venv/
+MUJOCO_LOG.TXT
+
+# data & artifacts (never commit these)
+data/
+runs/
+results/
+cache/
+*.hdf5
+*.pt
+third_party/

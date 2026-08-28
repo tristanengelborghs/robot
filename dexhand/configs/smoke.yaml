@@ -1,0 +1,16 @@
+# Minutes on a laptop CPU: easy z-goals, generous threshold, small nets.
+# The claim this run tests is "reward rises and rot_dist falls" — a learning
+# signal check, not a solved policy. See README for the expected curve.
+env:
+  episode_len: 100
+  max_goal_angle: 1.0
+  success_thresh: 0.4
+curriculum:
+  enabled: false
+train:
+  n_envs: 8
+  horizon: 64
+  total_steps: 120_000
+  hidden: [128, 128]
+  log_every: 2
+  ckpt_every: 1000000
