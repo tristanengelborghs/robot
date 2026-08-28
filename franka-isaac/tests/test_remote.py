@@ -3,7 +3,7 @@ next. These tests pin the two invariants that cost real GPU time to discover."""
 
 import pytest
 
-from insertion import remote
+from harness import remote
 
 
 def test_headless_run_always_disables_visualizers():

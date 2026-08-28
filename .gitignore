@@ -10,6 +10,7 @@ MUJOCO_LOG.TXT
 # data & artifacts (never commit these)
 data/
 runs/
+logs/
 results/
 cache/
 *.hdf5

@@ -1,12 +1,22 @@
-[build-system]
-requires = ["setuptools>=68"]
-build-backend = "setuptools.build_meta"
+# Formatting and lint config only. Deliberately NOT the root pyproject.toml that
+# Isaac Lab's template generator emits: that file declares `name = "isaaclab-dev"`
+# and a [tool.uv.sources] table pointing at source/isaaclab, source/isaaclab_rl and
+# friends — paths that exist in the Isaac Lab repo, not in an external project.
+# The ruff settings below are kept so our code formats the way Isaac Lab's does.
+#
+# The installable package lives in source/insertion (see its own setup.py).
 
-[project]
-name = "insertion"
-version = "0.1.0"
-description = "Contact-rich plug insertion on a Franka in Isaac Lab: hand-tracked teleoperation, recorded demos, behaviour cloning"
-requires-python = ">=3.10"
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["logs", "reference/factory_source", ".vscode", ".venv"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "SIM", "RET"]
+ignore = ["E402", "RET504", "RET505", "SIM102", "SIM108", "SIM117"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.format]
+docstring-code-format = true

@@ -18,4 +18,4 @@ GPU box stopped. Regenerate any of it with `make source`, `make inspect`,
   Developers, BSD-3-Clause; the original copyright headers are intact in every
   file. It is vendored rather than gitignored like `third_party/` because the
   whole point is to read it *without* renting a GPU. Never edit it — anything we
-  change belongs in `src/`.
+  change belongs in `source/insertion/`.

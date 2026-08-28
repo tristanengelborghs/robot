@@ -24,7 +24,7 @@ import shlex
 INSTANCE = "isaac-launchable-e4cbd5"
 CONTAINER = "vscode"
 ISAACLAB = "/workspace/isaaclab"
-WORKDIR = "/workspace/franka-isaac"
+WORKDIR = "/workspace/robot/franka-isaac"
 
 # The stock Isaac Lab task this project starts from, before any custom assets.
 BASE_TASK = "Isaac-Factory-PegInsert-Direct-v0"

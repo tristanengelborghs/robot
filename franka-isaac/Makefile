@@ -1,10 +1,11 @@
-.PHONY: help install test start stop status shell sync smoke video inspect source kill clean
+.PHONY: help install test start stop status shell code sync pull smoke video inspect source ext envs kill clean
 
 INSTANCE := isaac-launchable-e4cbd5
 CONTAINER := vscode
 TASK := Isaac-Factory-PegInsert-Direct-v0
 VIDEO_LEN := 200
 ISAACLAB := /workspace/isaaclab
+WS := /workspace/robot/franka-isaac
 REMOTE := ~/robot/franka-isaac
 
 help:
@@ -13,18 +14,21 @@ help:
 	@echo "start     boot the Brev GPU box and refresh its (always-changing) IP"
 	@echo "status    is the box running? are we being billed?"
 	@echo "sync      rsync this project to the GPU box and into the container"
+	@echo "pull      copy edits made in the browser VS Code back to this laptop"
 	@echo "shell     interactive shell inside the Isaac Lab container"
+	@echo "code      tunnel browser VS Code to http://localhost:8080"
 	@echo "smoke     headless peg-insert on the GPU box; verifies Isaac Lab still runs"
 	@echo "source    copy Isaac Lab's Factory task source into reference/ (read it offline)"
 	@echo "inspect   dump obs/action spaces, control Hz, joints into reference/"
 	@echo "video     record an mp4 of the task and pull it into reference/videos/"
+	@echo "ext       pip install source/insertion into Isaac Lab's python on the box"
+	@echo "envs      list the gym tasks our extension registers"
 	@echo "kill      kill a simulator left running in the container (it bills until you do)"
 	@echo "stop      stop the box — do this every time you walk away"
 
 install:
-	python3.11 -m venv .venv && .venv/bin/pip install -U pip && \
-	.venv/bin/pip install pytest && \
-	.venv/bin/pip install -e .
+	python3.11 -m venv .venv && .venv/bin/python -m pip install -U pip && \
+	.venv/bin/python -m pip install pytest
 
 test:
 	.venv/bin/python -m pytest tests/ -q
@@ -39,9 +43,10 @@ stop:
 	brev stop $(INSTANCE)
 
 sync:
-	rsync -az --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' \
+	rsync -az --delete --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' \
 		./ $(INSTANCE):$(REMOTE)/
-	ssh $(INSTANCE) 'docker cp $(REMOTE) $(CONTAINER):/workspace/'
+	ssh $(INSTANCE) 'docker exec $(CONTAINER) rm -rf /workspace/robot/franka-isaac'
+	ssh $(INSTANCE) 'docker cp $(REMOTE) $(CONTAINER):/workspace/robot/'
 
 shell:
 	ssh -t $(INSTANCE) 'docker exec -it $(CONTAINER) bash'
@@ -57,8 +62,8 @@ clean:
 
 inspect: sync
 	ssh $(INSTANCE) 'mkdir -p $(REMOTE)/reference'
-	ssh $(INSTANCE) 'docker exec $(CONTAINER) bash -lc "cd $(ISAACLAB) && ./isaaclab.sh -p /workspace/franka-isaac/scripts/inspect_env.py --headless --viz none"'
-	ssh $(INSTANCE) 'docker cp $(CONTAINER):/workspace/franka-isaac/reference/. $(REMOTE)/reference/'
+	ssh $(INSTANCE) 'docker exec $(CONTAINER) bash -lc "cd $(ISAACLAB) && ./isaaclab.sh -p $(WS)/scripts/inspect_env.py --headless --viz none"'
+	ssh $(INSTANCE) 'docker cp $(CONTAINER):$(WS)/reference/. $(REMOTE)/reference/'
 	rsync -az $(INSTANCE):$(REMOTE)/reference/ reference/
 
 source:
@@ -71,3 +76,20 @@ video: sync
 	ssh $(INSTANCE) 'rm -rf ~/vid && mkdir -p ~/vid && docker exec $(CONTAINER) bash -lc "find $(ISAACLAB)/logs -name \"*.mp4\" -newermt \"-1 hour\"" | while read f; do docker cp $(CONTAINER):"$$f" ~/vid/; done'
 	rsync -az $(INSTANCE):~/vid/ reference/videos/
 	@echo "video(s) in reference/videos/"
+
+ext: sync
+	ssh $(INSTANCE) 'docker exec $(CONTAINER) bash -lc "cd $(ISAACLAB) && ./isaaclab.sh -p -m pip install -e $(WS)/source/insertion"'
+
+envs: sync
+	ssh $(INSTANCE) 'docker exec $(CONTAINER) bash -lc "cd $(WS) && $(ISAACLAB)/isaaclab.sh -p scripts/list_envs.py"'
+
+pull:
+	ssh $(INSTANCE) 'rm -rf $(REMOTE).back && docker cp $(CONTAINER):$(WS) $(REMOTE).back'
+	rsync -az --exclude '.venv' --exclude '__pycache__' --exclude '.pytest_cache' \
+		$(INSTANCE):$(REMOTE).back/ ./
+	@echo "pulled container -> laptop; run 'git diff' to see what changed there"
+
+code:
+	@echo "tunnelling code-server to http://localhost:8080/?folder=/workspace/robot"
+	@echo "(ctrl-C to close; the browser keeps it alive while you use it)"
+	ssh -N -L 8080:localhost:8080 $(INSTANCE)
