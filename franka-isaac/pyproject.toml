@@ -1,0 +1,12 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "insertion"
+version = "0.1.0"
+description = "Contact-rich plug insertion on a Franka in Isaac Lab: hand-tracked teleoperation, recorded demos, behaviour cloning"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+where = ["src"]

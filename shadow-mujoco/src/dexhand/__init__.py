@@ -1,6 +1,6 @@
 """In-hand cube reorientation on dexterous hands.
 
-The sibling project (../1dof) collapses the hand to one scalar: a parallel-jaw
+The sibling project (../panda-libero) collapses the hand to one scalar: a parallel-jaw
 gripper is open or closed, and everything interesting happens in the arm. This
 project is the opposite bet — the arm barely moves and everything interesting
 happens in contact: 20 actuators, tendon-coupled underactuated distal joints,

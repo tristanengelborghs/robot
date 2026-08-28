@@ -5,7 +5,7 @@ teacher trained on privileged state, and a DAgger-distilled student that sees
 only what plausible hardware provides. The community-standard dexterity task
 (OpenAI 2018, DeXtreme 2022), built from scratch.
 
-The sibling project ([../1dof](../1dof)) collapses the hand to one scalar —
+The sibling project ([../panda-libero](../panda-libero)) collapses the hand to one scalar —
 a parallel-jaw gripper is open or closed, and everything interesting happens
 in the arm. This project is the opposite bet: the arm barely moves and
 everything interesting happens in **contact**. A Shadow Hand has 24 joints, 20

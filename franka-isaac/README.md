@@ -1,0 +1,79 @@
+# franka-isaac
+
+Contact-rich plug insertion on a Franka arm in Isaac Lab, driven by human
+demonstration: webcam hand tracking → teleoperation mapper → differential IK →
+recorded demos → behaviour cloning, with residual RL for the last millimetre.
+
+The sibling projects each take half of the manipulation problem.
+[../panda-libero](../panda-libero) collapses the hand to one scalar and learns *where to move an
+arm*; [../shadow-mujoco](../shadow-mujoco) bolts the arm down and learns *how to exploit
+contact*. Insertion is the case that refuses the split — the arm has to travel,
+and then the final five millimetres are settled entirely by contact, with the
+socket occluded by the plug at exactly the moment it matters.
+
+The full component-by-component plan, and the order it must be built in, is in
+[../note.md](../note.md).
+
+## This is the one that needs a GPU
+
+`panda-libero` and `shadow-mujoco` run on a laptop. This one cannot: Isaac Sim requires an
+NVIDIA RTX GPU, so the simulator lives on a rented cloud box and this directory
+holds the code that talks to it. The split is deliberate —
+
+* **pure Python, runs and tests anywhere** — retargeting, coordinate frames,
+  command construction. `make test` needs no GPU, no network and no instance.
+* **anything touching the simulator** — built as a string by
+  `src/insertion/remote.py` and executed on the host.
+
+That seam is why `make test` still means something on a machine that cannot run
+a single frame of the simulator.
+
+## Quickstart
+
+```bash
+make install     # venv: pytest only
+make test        # command construction — no GPU, no network, <1 min
+
+make start       # boot the GPU box (and refresh its IP, which always changes)
+make smoke       # headless peg-insert; proves Isaac Lab still runs
+make stop        # ALWAYS — the box bills by the hour
+```
+
+## The GPU host
+
+A Brev instance, `isaac-launchable-e4cbd5`: AWS `g6.xlarge`, one NVIDIA L4
+(24 GB), Ubuntu 24.04, carrying Isaac Lab 3.0.0 and Isaac Sim 6.0.1 as prebuilt
+Docker images. Work happens *inside* the `vscode` container, where Isaac Lab
+lives at `/workspace/isaaclab`.
+
+Verified working 2026-08-28: `Isaac-Factory-PegInsert-Direct-v0` loads the
+Franka and the plug/socket assets and steps at ~63% GPU utilisation, 4.3 GB.
+
+Four things about that box cost time to learn, so they are encoded in
+`remote.py` and pinned by tests rather than left in someone's memory:
+
+1. **Headless runs need `--viz none`.** The scripts under
+   `scripts/environments/` do `parser.set_defaults(visualizer=["kit"])`, and Kit
+   cannot initialise without a display. `--headless` alone raises
+   *"Explicitly requested visualizer(s) ['kit'] could not be configured"*.
+2. **The browser viewer needs `--livestream 2`,** and is therefore incompatible
+   with headless. Under `--headless` no Kit streaming ports listen at all, so a
+   blank `/viewer` tab is correct behaviour, not a fault.
+3. **`/workspace` is not bind-mounted from the host.** Only the Omniverse shader
+   caches are. Anything written inside the container dies with it — commit and
+   push, never leave the only copy on the box.
+4. **A capped `docker exec` leaks the simulator.** `timeout` kills the local
+   client; the process inside the container keeps running, and keeps billing.
+   `make kill` is the cleanup.
+
+The instance's public IP changes on every restart, which is what `make start`
+runs `brev refresh` for. The repo is private, so the host clones it over
+forwarded ssh-agent (`ssh -A`) — no key or token is ever placed on rented
+hardware.
+
+## Status
+
+Scaffolding and the verified remote path. None of the pipeline in
+[../note.md](../note.md) is built yet: Component 0 is cleared (Isaac Lab runs, the
+stock insertion task runs), and Component 1 — inspecting that task's observation
+space, action space and control frequency — is the next step.
