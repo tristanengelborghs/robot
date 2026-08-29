@@ -24,10 +24,24 @@ import shlex
 INSTANCE = "isaac-launchable-e4cbd5"
 CONTAINER = "vscode"
 ISAACLAB = "/workspace/isaaclab"
+
+# The container ships no system Python; this is the only interpreter on it.
+ISAAC_SIM_PYTHON = "/isaac-sim/python.sh"
 WORKDIR = "/workspace/robot/franka-isaac"
 
 # The stock Isaac Lab task this project starts from, before any custom assets.
 BASE_TASK = "Isaac-Factory-PegInsert-Direct-v0"
+
+# Component 2 validates the recording pipeline on a task that is already known
+# to be teleoperable and mimic-ready, before any of it is pointed at insertion.
+TELEOP_TASK = "Isaac-Stack-Cube-Franka-IK-Rel-v0"
+
+# Where recorded datasets land inside the container. Deliberately *outside*
+# WORKDIR: `make sync` rm -rf's the project directory on the box before copying
+# a fresh one in, so a dataset recorded into it is deleted by the next sync --
+# which is exactly how the first recorded set of demonstrations was lost.
+DATASET_DIR = "/workspace/datasets"
+DATASET_FILE = f"{DATASET_DIR}/stack_scripted.hdf5"
 
 
 def ssh(inner: str, *, forward_agent: bool = False) -> str:
@@ -52,12 +66,18 @@ def isaaclab(
     script: str,
     *,
     task: str = BASE_TASK,
-    num_envs: int = 4,
+    num_envs: int | None = 4,
     headless: bool = True,
     livestream: bool = False,
     extra: tuple[str, ...] = (),
+    launcher: str = "./isaaclab.sh -p",
 ) -> str:
     """Build an ``isaaclab.sh`` invocation.
+
+    ``num_envs=None`` omits the flag entirely, for scripts that do not take one
+    -- passing an argument argparse has never heard of is a hard error, not a
+    warning. ``launcher`` is absolute when the working directory is this project
+    rather than the Isaac Lab tree.
 
     Raises:
         ValueError: if both ``headless`` and ``livestream`` are requested.
@@ -68,7 +88,9 @@ def isaaclab(
             "opens no Kit streaming ports, so the browser viewer stays blank"
         )
 
-    args = [f"--task {task}", f"--num_envs {num_envs}"]
+    args = [f"--task {task}"]
+    if num_envs is not None:
+        args.append(f"--num_envs {num_envs}")
     if headless:
         # --viz none is not optional here; see module docstring.
         args += ["--headless", "--viz none"]
@@ -76,12 +98,78 @@ def isaaclab(
         args.append("--livestream 2")
     args += list(extra)
 
-    return f"./isaaclab.sh -p {script} " + " ".join(args)
+    return f"{launcher} {script} " + " ".join(args)
 
 
 def smoke(num_envs: int = 4) -> str:
     """Full command for the run that verified the box: random agent, headless."""
     return ssh(in_container(isaaclab("scripts/environments/random_agent.py", num_envs=num_envs)))
+
+
+def patch_container() -> str:
+    """Reapply the container-side fixes in scripts/patch_container.py.
+
+    Two things in Isaac Lab 3.0.0 stop a headless Franka run before it starts: a
+    Franka USD path NVIDIA has moved, and a replay script that builds a keyboard
+    device needing an app window. Both are in Isaac Lab's own source, so neither
+    can be fixed from an environment config on our side -- Isaac Lab's scripts
+    hit them too. The patch script explains each one.
+
+    It runs on every ``make sync`` because the container's filesystem does not
+    persist, and it is idempotent.
+
+    The container has no system Python at all -- ``python3`` is not on the PATH,
+    and running the patch with it exits 127 -- so this falls back to Isaac Sim's
+    bundled interpreter, which is the only one there.
+    """
+    interpreter = f"$(command -v python3 || echo {ISAAC_SIM_PYTHON})"
+    return ssh(in_container(f"{interpreter} {WORKDIR}/scripts/patch_container.py", workdir=WORKDIR))
+
+
+def record_scripted(
+    num_demos: int = 5,
+    *,
+    task: str = TELEOP_TASK,
+    dataset_file: str = DATASET_FILE,
+    extra: tuple[str, ...] = (),
+) -> str:
+    """Full command to record scripted demonstrations on the GPU host.
+
+    Runs from ``WORKDIR`` rather than the Isaac Lab tree, because the script
+    imports ``harness.stack_sm`` from this project. ``num_envs`` is fixed at 1:
+    the recorder manager exports environment ``[0]``, and a second environment
+    would be simulated for nothing.
+    """
+    inner = isaaclab(
+        "scripts/record_scripted.py",
+        task=task,
+        num_envs=None,
+        extra=(f"--num_demos {num_demos}", f"--dataset_file {dataset_file}", *extra),
+        launcher=f"{ISAACLAB}/isaaclab.sh -p",
+    )
+    return ssh(in_container(inner, workdir=WORKDIR))
+
+
+def replay(
+    *,
+    task: str = TELEOP_TASK,
+    dataset_file: str = DATASET_FILE,
+    extra: tuple[str, ...] = (),
+) -> str:
+    """Full command to replay a recorded dataset back through the simulator.
+
+    This is the half of Component 2 that actually validates the recording: a
+    dataset that cannot be replayed into the same trajectory is not a
+    demonstration, it is a log.
+    """
+    inner = isaaclab(
+        f"{ISAACLAB}/scripts/tools/replay_demos.py",
+        task=task,
+        num_envs=1,  # --validate_states is only meaningful with one environment
+        extra=("--validate_states", "--validate_success_rate", f"--dataset_file {dataset_file}", *extra),
+        launcher=f"{ISAACLAB}/isaaclab.sh -p",
+    )
+    return ssh(in_container(inner, workdir=WORKDIR))
 
 
 def kill_sim(script_name: str = "random_agent.py") -> str:

@@ -12,7 +12,7 @@ client while the simulator inside the container keeps running -- and billing.
 import subprocess
 import sys
 
-from insertion import remote
+from harness import remote
 
 TIMEOUT_S = 420
 

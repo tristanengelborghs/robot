@@ -51,3 +51,70 @@ def test_smoke_nests_all_three_layers():
     assert cmd.startswith("ssh ")
     assert "docker exec" in cmd
     assert "isaaclab.sh" in cmd
+
+
+def test_record_runs_from_this_project_not_the_isaaclab_tree():
+    # scripts/record_scripted.py imports harness.stack_sm, so it has to run with
+    # this project as the working directory -- and therefore needs an absolute
+    # path to isaaclab.sh.
+    cmd = remote.record_scripted(num_demos=5)
+    assert f"cd {remote.WORKDIR}" in cmd
+    assert f"{remote.ISAACLAB}/isaaclab.sh -p scripts/record_scripted.py" in cmd
+    assert "--num_demos 5" in cmd
+    assert remote.TELEOP_TASK in cmd
+
+
+def test_record_does_not_pass_num_envs():
+    # record_scripted.py fixes num_envs at 1 and never defines the flag;
+    # argparse rejects arguments it has never heard of.
+    assert "--num_envs" not in remote.record_scripted()
+
+
+def test_record_is_headless_with_visualizers_off():
+    cmd = remote.record_scripted()
+    assert "--headless" in cmd
+    assert "--viz none" in cmd
+
+
+def test_replay_validates_states_in_a_single_environment():
+    # "Done when: a replayed episode reproduces the original trajectory" is
+    # exactly what --validate_states checks, and it is only valid for one env.
+    cmd = remote.replay()
+    assert "replay_demos.py" in cmd
+    assert "--validate_states" in cmd
+    assert "--num_envs 1" in cmd
+
+
+def test_record_and_replay_agree_on_the_dataset_path():
+    assert remote.DATASET_FILE in remote.record_scripted()
+    assert remote.DATASET_FILE in remote.replay()
+
+
+def test_num_envs_can_be_omitted():
+    assert "--num_envs" not in remote.isaaclab("scripts/x.py", num_envs=None)
+    assert "--num_envs 8" in remote.isaaclab("scripts/x.py", num_envs=8)
+
+
+def test_container_patch_runs_the_synced_patch_script():
+    # Isaac Lab 3.0.0 ships a Franka USD path NVIDIA has since moved, and a
+    # replay script that cannot start headless. Its own scripts hit both, so the
+    # fixes go into the container's Isaac Lab rather than our environment config.
+    cmd = remote.patch_container()
+    assert f"{remote.WORKDIR}/scripts/patch_container.py" in cmd
+    assert cmd.startswith("ssh ")
+
+
+def test_container_patch_falls_back_to_isaac_sims_python():
+    # The container has no system Python: `python3` is not on the PATH there and
+    # running the patch with it exits 127.
+    cmd = remote.patch_container()
+    assert "command -v python3" in cmd
+    assert remote.ISAAC_SIM_PYTHON in cmd
+
+
+def test_datasets_are_recorded_outside_the_synced_directory():
+    # `make sync` deletes WORKDIR on the box before copying a fresh copy in, so
+    # anything recorded under it is destroyed by the next sync. This cost one
+    # full set of recorded demonstrations.
+    assert not remote.DATASET_FILE.startswith(remote.WORKDIR)
+    assert remote.DATASET_FILE.startswith(remote.DATASET_DIR)
