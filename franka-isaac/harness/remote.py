@@ -42,6 +42,14 @@ TELEOP_TASK = "Isaac-Stack-Cube-Franka-IK-Rel-v0"
 # which is exactly how the first recorded set of demonstrations was lost.
 DATASET_DIR = "/workspace/datasets"
 DATASET_FILE = f"{DATASET_DIR}/stack_scripted.hdf5"
+TELEOP_DATASET_FILE = f"{DATASET_DIR}/stack_teleop.hdf5"
+
+# nginx on the box proxies /viewer/ to the web-viewer app on 5173, and Isaac
+# Sim's WebRTC server signals on 8211. Only port 22 is open to the internet, so
+# both reach the laptop through an ssh tunnel; see `make tunnel`.
+VIEWER_PORT = 80
+WEBRTC_PORT = 8211
+LOCAL_VIEWER_PORT = 8090
 
 
 def ssh(inner: str, *, forward_agent: bool = False) -> str:
@@ -170,6 +178,72 @@ def replay(
         launcher=f"{ISAACLAB}/isaaclab.sh -p",
     )
     return ssh(in_container(inner, workdir=WORKDIR))
+
+
+def record_teleop(
+    num_demos: int = 5,
+    *,
+    task: str = TELEOP_TASK,
+    dataset_file: str = TELEOP_DATASET_FILE,
+    device: str = "keyboard",
+    extra: tuple[str, ...] = (),
+) -> str:
+    """Full command for a human-teleoperated recording session.
+
+    This is Isaac Lab's own ``record_demos.py``, unmodified, driven by a person
+    at a keyboard. It is the counterpart to :func:`record_scripted`: the same
+    recorder, the same HDF5, a different source of actions.
+
+    It cannot be headless. A keyboard device needs an application window to
+    attach to, so the run streams instead -- ``--livestream 2`` -- and the
+    window it attaches to is served to a browser. :func:`tunnel` is how that
+    browser reaches it.
+
+    ``--teleop_device`` is passed explicitly to force Isaac Lab's legacy device
+    path. Left off, ``record_demos.py`` prefers the IsaacTeleop/CloudXR pipeline
+    when the task configures one, which wants a VR headset rather than a
+    keyboard.
+    """
+    inner = isaaclab(
+        f"{ISAACLAB}/scripts/tools/record_demos.py",
+        task=task,
+        num_envs=None,  # record_demos.py fixes this at 1 and defines no flag
+        headless=False,
+        livestream=True,
+        extra=(
+            f"--teleop_device {device}",
+            f"--num_demos {num_demos}",
+            f"--dataset_file {dataset_file}",
+            *extra,
+        ),
+        launcher=f"{ISAACLAB}/isaaclab.sh -p",
+    )
+    return ssh(in_container(inner, workdir=WORKDIR))
+
+
+def tunnel() -> str:
+    """Forward the browser viewer and its WebRTC signalling to this laptop.
+
+    The instance's security group opens port 22 and nothing else, so the viewer
+    is reached the same way everything else on the box is: through ssh. ``-N``
+    opens the forwards without running a command, so the tunnel stays up until
+    it is interrupted.
+
+    ``ControlPath=none`` is what makes that last sentence true. Brev's generated
+    ssh config turns on connection multiplexing, and against an existing master
+    connection ``ssh -N`` hands over the forwards and *exits immediately*: the
+    tunnel is up, the command looks like it failed, ctrl-C no longer closes
+    anything, and the next attempt collides with the ports it left behind.
+    Opening a dedicated connection costs one more TCP session and makes the
+    tunnel behave the way the shell suggests it does.
+    """
+    forwards = f"-L {LOCAL_VIEWER_PORT}:localhost:{VIEWER_PORT} -L {WEBRTC_PORT}:localhost:{WEBRTC_PORT}"
+    return f"ssh -N -o ControlPath=none -o ExitOnForwardFailure=yes {forwards} {INSTANCE}"
+
+
+def viewer_url() -> str:
+    """Where to point a browser once :func:`tunnel` is running."""
+    return f"http://localhost:{LOCAL_VIEWER_PORT}/viewer/"
 
 
 def kill_sim(script_name: str = "random_agent.py") -> str:

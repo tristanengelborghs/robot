@@ -150,6 +150,56 @@ def yaw_error(target: float, current: float) -> float:
     return wrap_to_pi(target - current + YAW_SYMMETRY / 2) % YAW_SYMMETRY - YAW_SYMMETRY / 2
 
 
+# Layout of one cube's block in the task's `object` observation term, from
+# mdp.object_obs: a position followed by a quaternion, the position already
+# relative to the environment origin.
+POSE_LENGTH = 7
+CUBE_COUNT = 3
+
+
+def observation_from_arrays(
+    eef_pos: np.ndarray,
+    eef_quat: np.ndarray,
+    object_term: np.ndarray,
+) -> Observation:
+    """Build an :class:`Observation` from the task's raw observation arrays.
+
+    This lives here rather than in scripts/record_scripted.py because it is
+    arithmetic, and arithmetic is testable without a simulator. Slicing a 39-wide
+    observation term into three poses is exactly the kind of off-by-seven that
+    should not be discovered on a rented GPU.
+
+    Only the first three pose blocks of ``object_term`` are read; the rest of
+    that term is relative vectors between the cubes and the gripper, which the
+    controller derives for itself from these.
+
+    Args:
+        eef_pos: End-effector position, ``(3,)``.
+        eef_quat: End-effector orientation as a ``wxyz`` quaternion, ``(4,)``.
+        object_term: The task's ``object`` observation term, at least
+            ``CUBE_COUNT * POSE_LENGTH`` long.
+
+    Raises:
+        ValueError: if ``object_term`` is too short to hold three poses, which
+            means it came from a task laid out differently to this one.
+    """
+    flat = np.asarray(object_term).reshape(-1)
+    needed = CUBE_COUNT * POSE_LENGTH
+    if flat.size < needed:
+        raise ValueError(
+            f"the `object` observation term is {flat.size} wide, expected at least {needed} "
+            f"({CUBE_COUNT} cubes x {POSE_LENGTH} numbers of pose) -- is this the stacking task?"
+        )
+
+    poses = flat[:needed].reshape(CUBE_COUNT, POSE_LENGTH)
+    return Observation(
+        eef_pos=np.asarray(eef_pos, dtype=float).reshape(3),
+        eef_yaw=yaw_from_quat(np.asarray(eef_quat).reshape(4)),
+        cube_pos=poses[:, :3].astype(float).copy(),
+        cube_yaw=np.array([yaw_from_quat(pose[3:7]) for pose in poses]),
+    )
+
+
 def yaw_from_quat(quat: np.ndarray) -> float:
     """Yaw of a ``wxyz`` quaternion, in radians.
 
@@ -186,11 +236,29 @@ class StackStateMachine:
         self.stage = 0  # index into self.plan
         self.transitions: list[Transition] = []
 
-        # Yaw the gripper committed to at the grasp, and the height it lifted
-        # from; both are frozen at grasp time because the cube's own pose is no
-        # longer independent of the arm once it is held.
+        # Frozen at grasp time, because a cube's pose stops being independent
+        # of the arm the moment the arm is holding it: the yaw the gripper
+        # committed to, and the height to carry it at.
         self._grasp_yaw: float = 0.0
-        self._carry_z: float = 0.0
+        self._carry_height: float = 0.0
+
+        # Every state maps to exactly one handler. Building the table here,
+        # rather than dispatching on a chain of comparisons, means an
+        # unhandled state is a KeyError naming the state rather than a silent
+        # fall-through -- and tests/test_stack_sm.py checks the table is total.
+        self._handlers = {
+            State.HOVER_PICK: self._hover_pick,
+            State.DESCEND_PICK: self._descend_pick,
+            State.CLOSE: self._close,
+            State.LIFT: self._lift,
+            State.HOVER_PLACE: self._hover_place,
+            State.DESCEND_PLACE: self._descend_place,
+            State.OPEN: self._open,
+            State.RETREAT: self._retreat,
+            State.SETTLE: self._settle,
+            State.DONE: self._terminal,
+            State.FAILED: self._terminal,
+        }
 
     @property
     def finished(self) -> bool:
@@ -211,98 +279,159 @@ class StackStateMachine:
         return self.plan[min(self.stage, len(self.plan) - 1)][1]
 
     def step(self, obs: Observation) -> np.ndarray:
-        """Advance one environment step and return a 7-dimensional action."""
+        """Advance one environment step and return a 7-dimensional action.
+
+        The handler for the current state decides what to command and whether to
+        move on. Timeouts are checked here rather than inside each handler, so
+        that no state can forget to have one.
+        """
         if self.finished:
-            return self._action(np.zeros(3), 0.0, gripper_open=True)
+            return self._hold_still()
 
         self.step_count += 1
         self.state_step += 1
 
-        action = self._act(obs)
+        action = self._handlers[self.state](obs)
 
-        if self.state_step >= self.cfg.state_timeout and self.state not in (State.DONE, State.FAILED):
+        if not self.finished and self.state_step >= self.cfg.state_timeout:
             self._go(State.FAILED, f"timed out after {self.state_step} steps")
 
         return action
 
-    def _act(self, obs: Observation) -> np.ndarray:
-        cfg = self.cfg
-        pick = obs.cube_pos[self.pick_index]
+    # -- one handler per state, in the order they run --------------------------
+    #
+    # Each takes the current observation, returns the action to command, and
+    # transitions when its own completion test passes. They are deliberately
+    # separate methods rather than branches of one function: a state's target
+    # pose, its completion test and its reason for moving on belong together and
+    # nowhere else.
+
+    def _hover_pick(self, obs: Observation) -> np.ndarray:
+        """Line up above the cube to be picked, gripper open, yaw matched."""
+        cube = obs.cube_pos[self.pick_index]
+        target = cube + np.array([0.0, 0.0, self.cfg.hover_height])
+        position_error = target - obs.eef_pos
+        yaw_err = yaw_error(obs.cube_yaw[self.pick_index], obs.eef_yaw)
+
+        if horizontal_distance(position_error) < self.cfg.xy_tol and abs(yaw_err) < self.cfg.yaw_tol:
+            self._go(State.DESCEND_PICK, "aligned above cube")
+
+        return self._action(position_error, yaw_err, gripper_open=True)
+
+    def _descend_pick(self, obs: Observation) -> np.ndarray:
+        """Come down onto the cube, still open, still tracking its yaw."""
+        cube = obs.cube_pos[self.pick_index]
+        target = cube + np.array([0.0, 0.0, self.cfg.grasp_height])
+        position_error = target - obs.eef_pos
+        yaw_err = yaw_error(obs.cube_yaw[self.pick_index], obs.eef_yaw)
+
+        if np.linalg.norm(position_error) < self.cfg.pos_tol:
+            # Freeze what the arm will need while carrying. Once the cube is
+            # held, its measured pose stops being an independent signal about
+            # where the arm should go, so these cannot be read again later.
+            self._grasp_yaw = obs.eef_yaw
+            self._carry_height = cube[2] + self.cfg.lift_height
+            self._go(State.CLOSE, "at grasp pose")
+
+        return self._action(position_error, yaw_err, gripper_open=True)
+
+    def _close(self, _obs: Observation) -> np.ndarray:
+        """Hold still while the fingers travel.
+
+        Commanding motion here is how a grasp turns into a swipe: the fingers
+        take a few control steps to close, and anything that moves the hand
+        during them drags the cube instead of gripping it.
+        """
+        if self.state_step >= self.cfg.close_steps:
+            self._go(State.LIFT, "gripper closed")
+
+        return self._hold_still(gripper_open=False)
+
+    def _lift(self, obs: Observation) -> np.ndarray:
+        """Raise the held cube clear of the table and of the other cubes."""
+        position_error = np.array([0.0, 0.0, self._carry_height - obs.eef_pos[2]])
+
+        if abs(position_error[2]) < self.cfg.pos_tol:
+            self._go(State.HOVER_PLACE, "cube lifted clear")
+
+        return self._action(position_error, 0.0, gripper_open=False)
+
+    def _hover_place(self, obs: Observation) -> np.ndarray:
+        """Carry the cube over the one it is going on top of."""
         base = obs.cube_pos[self.base_index]
+        target = base + np.array([0.0, 0.0, self.cfg.hover_height + self.cfg.cube_height])
+        position_error = target - obs.eef_pos
 
-        if self.state is State.HOVER_PICK:
-            target = pick + np.array([0.0, 0.0, cfg.hover_height])
-            yaw_err = yaw_error(obs.cube_yaw[self.pick_index], obs.eef_yaw)
-            err = target - obs.eef_pos
-            if _xy_norm(err) < cfg.xy_tol and abs(yaw_err) < cfg.yaw_tol:
-                self._go(State.DESCEND_PICK, "aligned above cube")
-            return self._action(err, yaw_err, gripper_open=True)
+        if horizontal_distance(position_error) < self.cfg.xy_tol:
+            self._go(State.DESCEND_PLACE, "above the base cube")
 
-        if self.state is State.DESCEND_PICK:
-            target = pick + np.array([0.0, 0.0, cfg.grasp_height])
-            yaw_err = yaw_error(obs.cube_yaw[self.pick_index], obs.eef_yaw)
-            err = target - obs.eef_pos
-            if np.linalg.norm(err) < cfg.pos_tol:
-                self._grasp_yaw = obs.eef_yaw
-                self._carry_z = pick[2] + cfg.lift_height
-                self._go(State.CLOSE, "at grasp pose")
-            return self._action(err, yaw_err, gripper_open=True)
+        return self._action(position_error, 0.0, gripper_open=False)
 
-        if self.state is State.CLOSE:
-            # Hold still while the fingers travel; commanding motion here is how
-            # a grasp turns into a swipe.
-            if self.state_step >= cfg.close_steps:
-                self._go(State.LIFT, "gripper closed")
-            return self._action(np.zeros(3), 0.0, gripper_open=False)
+    def _descend_place(self, obs: Observation) -> np.ndarray:
+        """Lower until the carried cube is seated on the stack.
 
-        if self.state is State.LIFT:
-            err = np.array([0.0, 0.0, self._carry_z - obs.eef_pos[2]])
-            if abs(err[2]) < cfg.pos_tol:
-                self._go(State.HOVER_PLACE, "cube lifted clear")
-            return self._action(err, 0.0, gripper_open=False)
+        The carried cube must end up one cube-height above the base cube's
+        centre, and the gripper is holding it ``grasp_height`` above its centre.
+        """
+        base = obs.cube_pos[self.base_index]
+        target = base + np.array([0.0, 0.0, self.cfg.cube_height + self.cfg.grasp_height])
+        position_error = target - obs.eef_pos
 
-        if self.state is State.HOVER_PLACE:
-            target = base + np.array([0.0, 0.0, cfg.hover_height + cfg.cube_height])
-            err = target - obs.eef_pos
-            if _xy_norm(err) < cfg.xy_tol:
-                self._go(State.DESCEND_PLACE, "above the base cube")
-            return self._action(err, 0.0, gripper_open=False)
+        if np.linalg.norm(position_error) < self.cfg.pos_tol:
+            self._go(State.OPEN, "cube seated on the stack")
 
-        if self.state is State.DESCEND_PLACE:
-            # The carried cube's centre must end up one cube-height above the
-            # base cube's centre, and the gripper holds it at grasp_height.
-            target = base + np.array([0.0, 0.0, cfg.cube_height + cfg.grasp_height])
-            err = target - obs.eef_pos
-            if np.linalg.norm(err) < cfg.pos_tol:
-                self._go(State.OPEN, "cube seated on the stack")
-            return self._action(err, 0.0, gripper_open=False)
+        return self._action(position_error, 0.0, gripper_open=False)
 
-        if self.state is State.OPEN:
-            if self.state_step >= cfg.open_steps:
-                self._go(State.RETREAT, "gripper released")
-            return self._action(np.zeros(3), 0.0, gripper_open=True)
+    def _open(self, _obs: Observation) -> np.ndarray:
+        """Let go, and give the fingers time to actually be open."""
+        if self.state_step >= self.cfg.open_steps:
+            self._go(State.RETREAT, "gripper released")
 
-        if self.state is State.RETREAT:
-            # Clear of the stack before anything else moves: the success test
-            # also requires the fingers be fully open, and dragging a finger
-            # across the top cube is the classic way to lose a finished stack.
-            err = np.array([0.0, 0.0, base[2] + cfg.lift_height - obs.eef_pos[2]])
-            if abs(err[2]) < cfg.pos_tol:
-                self.stage += 1
-                if self.stage >= len(self.plan):
-                    self._go(State.SETTLE, "all cubes placed")
-                else:
-                    self._go(State.HOVER_PICK, f"stage {self.stage} of {len(self.plan)}")
-            return self._action(err, 0.0, gripper_open=True)
+        return self._hold_still(gripper_open=True)
 
-        if self.state is State.SETTLE:
-            # Stand still with the gripper open and let the success termination
-            # observe a stack that is not still being touched.
-            if self.state_step >= cfg.settle_steps:
-                self._go(State.DONE, "settled")
-            return self._action(np.zeros(3), 0.0, gripper_open=True)
+    def _retreat(self, obs: Observation) -> np.ndarray:
+        """Climb clear of the stack before anything else moves.
 
-        raise AssertionError(f"unhandled state {self.state}")
+        Dragging a finger across the cube just placed is the classic way to lose
+        a finished stack, and the success test also requires both fingers back
+        at their open position.
+        """
+        base = obs.cube_pos[self.base_index]
+        position_error = np.array([0.0, 0.0, base[2] + self.cfg.lift_height - obs.eef_pos[2]])
+
+        if abs(position_error[2]) < self.cfg.pos_tol:
+            self._finish_stage()
+
+        return self._action(position_error, 0.0, gripper_open=True)
+
+    def _settle(self, _obs: Observation) -> np.ndarray:
+        """Stand still with the gripper open and let the stack be observed.
+
+        The environment's success termination wants a stack that is not still
+        being touched, held for several consecutive steps.
+        """
+        if self.state_step >= self.cfg.settle_steps:
+            self._go(State.DONE, "settled")
+
+        return self._hold_still(gripper_open=True)
+
+    def _terminal(self, _obs: Observation) -> np.ndarray:
+        """DONE and FAILED both do nothing, safely."""
+        return self._hold_still(gripper_open=True)
+
+    # -- transitions and command construction ---------------------------------
+
+    def _finish_stage(self) -> None:
+        """One cube is placed. Move to the next, or settle if that was the last."""
+        self.stage += 1
+        if self.stage >= len(self.plan):
+            self._go(State.SETTLE, "all cubes placed")
+        else:
+            self._go(State.HOVER_PICK, f"stage {self.stage} of {len(self.plan)}")
+
+    def _hold_still(self, *, gripper_open: bool = True) -> np.ndarray:
+        """Command no motion at all, with the gripper in the given state."""
+        return self._action(np.zeros(3), 0.0, gripper_open=gripper_open)
 
     def _action(self, pos_err: np.ndarray, yaw_err: float, *, gripper_open: bool) -> np.ndarray:
         """Turn a pose error into the 7 numbers the environment wants."""
@@ -321,7 +450,8 @@ class StackStateMachine:
         self.state_step = 0
 
 
-def _xy_norm(vec: np.ndarray) -> float:
+def horizontal_distance(vec: np.ndarray) -> float:
+    """Length of ``vec`` in the xy plane, ignoring height."""
     return float(np.linalg.norm(vec[:2]))
 
 

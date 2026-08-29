@@ -15,9 +15,7 @@ def test_headless_run_always_disables_visualizers():
 
 
 def test_livestream_run_is_not_headless():
-    cmd = remote.isaaclab(
-        "scripts/environments/random_agent.py", headless=False, livestream=True
-    )
+    cmd = remote.isaaclab("scripts/environments/random_agent.py", headless=False, livestream=True)
     assert "--livestream 2" in cmd
     assert "--headless" not in cmd
     assert "--viz none" not in cmd
@@ -118,3 +116,56 @@ def test_datasets_are_recorded_outside_the_synced_directory():
     # full set of recorded demonstrations.
     assert not remote.DATASET_FILE.startswith(remote.WORKDIR)
     assert remote.DATASET_FILE.startswith(remote.DATASET_DIR)
+
+
+def test_teleop_streams_because_a_keyboard_needs_a_window():
+    # A keyboard device attaches to an application window, so a teleoperated
+    # recording cannot be headless -- it streams to a browser instead.
+    cmd = remote.record_teleop()
+    assert "record_demos.py" in cmd
+    assert "--livestream 2" in cmd
+    assert "--headless" not in cmd
+    assert "--viz none" not in cmd
+
+
+def test_teleop_forces_the_legacy_device_path():
+    # Without an explicit --teleop_device, record_demos.py prefers the
+    # IsaacTeleop/CloudXR pipeline when the task configures one, which wants a
+    # VR headset rather than a keyboard.
+    assert "--teleop_device keyboard" in remote.record_teleop()
+    assert "--teleop_device spacemouse" in remote.record_teleop(device="spacemouse")
+
+
+def test_teleop_records_to_its_own_dataset():
+    # Hand-driven demos must not be written over the scripted ones, and both
+    # live outside the directory `make sync` deletes.
+    assert remote.TELEOP_DATASET_FILE != remote.DATASET_FILE
+    assert remote.TELEOP_DATASET_FILE.startswith(remote.DATASET_DIR)
+    assert remote.TELEOP_DATASET_FILE in remote.record_teleop()
+
+
+def test_teleop_does_not_pass_num_envs():
+    assert "--num_envs" not in remote.record_teleop()
+
+
+def test_tunnel_forwards_the_viewer_and_its_signalling_port():
+    # Only port 22 is open on the instance, so both the viewer page and the
+    # WebRTC signalling reach the laptop through ssh.
+    cmd = remote.tunnel()
+    assert f"-L {remote.LOCAL_VIEWER_PORT}:localhost:{remote.VIEWER_PORT}" in cmd
+    assert f"-L {remote.WEBRTC_PORT}:localhost:{remote.WEBRTC_PORT}" in cmd
+    assert " -N " in cmd
+
+
+def test_tunnel_opts_out_of_ssh_connection_multiplexing():
+    # Brev's ssh config enables multiplexing, and against an existing master
+    # `ssh -N` registers the forwards and exits at once: the tunnel is up, the
+    # command looks like it failed, and ctrl-C closes nothing.
+    cmd = remote.tunnel()
+    assert "ControlPath=none" in cmd
+    assert "ExitOnForwardFailure=yes" in cmd
+
+
+def test_viewer_url_matches_the_tunnel():
+    assert str(remote.LOCAL_VIEWER_PORT) in remote.viewer_url()
+    assert remote.viewer_url().endswith("/viewer/")

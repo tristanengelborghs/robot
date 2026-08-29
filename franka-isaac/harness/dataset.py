@@ -49,8 +49,10 @@ class EpisodeSummary:
     obs_shapes: dict[str, tuple[int, ...]]
 
     def format(self) -> str:
-        flag = {True: "success", False: "FAILED", None: "unlabelled"}[self.success]
-        lines = [f"{self.name}: {self.num_samples} steps, {flag}" + ("" if self.seed is None else f", seed {self.seed}")]
+        outcome = {True: "success", False: "FAILED", None: "unlabelled"}[self.success]
+        seed = "" if self.seed is None else f", seed {self.seed}"
+
+        lines = [f"{self.name}: {self.num_samples} steps, {outcome}{seed}"]
         lines.append(f"  actions {self.action_shape}")
         for key, shape in sorted(self.obs_shapes.items()):
             lines.append(f"  obs/{key} {shape}")

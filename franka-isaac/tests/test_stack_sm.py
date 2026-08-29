@@ -24,6 +24,8 @@ from harness.stack_sm import (
     StackConfig,
     StackStateMachine,
     State,
+    horizontal_distance,
+    observation_from_arrays,
     wrap_to_pi,
     yaw_error,
     yaw_from_quat,
@@ -262,3 +264,57 @@ def test_a_finished_machine_holds_still():
     action = sm.step(Observation(np.zeros(3), 0.0, np.zeros((3, 3)), np.zeros(3)))
     assert np.all(action[:6] == 0.0)
     assert action[6] > 0
+
+
+def test_every_state_has_a_handler():
+    # A state without a handler would be a KeyError mid-episode on a rented
+    # GPU. The table is small; checking it is total costs nothing.
+    sm = StackStateMachine()
+    assert set(sm._handlers) == set(State)
+
+
+def test_horizontal_distance_ignores_height():
+    assert horizontal_distance(np.array([3.0, 4.0, 100.0])) == pytest.approx(5.0)
+
+
+def test_observation_is_sliced_out_of_the_object_term():
+    # mdp.object_obs lays out three (position, quaternion) blocks, then relative
+    # vectors this controller ignores. Getting that slice wrong is an
+    # off-by-seven that would otherwise surface on a rented GPU.
+    object_term = np.arange(39, dtype=float)
+    object_term[0:3] = [0.4, 0.0, 0.02]
+    object_term[3:7] = [1.0, 0.0, 0.0, 0.0]
+    object_term[7:10] = [0.5, 0.1, 0.02]
+    object_term[10:14] = [1.0, 0.0, 0.0, 0.0]
+    object_term[14:17] = [0.6, -0.1, 0.02]
+    object_term[17:21] = [1.0, 0.0, 0.0, 0.0]
+
+    obs = observation_from_arrays(
+        eef_pos=np.array([0.45, 0.0, 0.3]),
+        eef_quat=np.array([1.0, 0.0, 0.0, 0.0]),
+        object_term=object_term,
+    )
+
+    assert obs.cube_pos.shape == (3, 3)
+    assert obs.cube_pos[0] == pytest.approx([0.4, 0.0, 0.02])
+    assert obs.cube_pos[1] == pytest.approx([0.5, 0.1, 0.02])
+    assert obs.cube_pos[2] == pytest.approx([0.6, -0.1, 0.02])
+    assert obs.cube_yaw == pytest.approx([0.0, 0.0, 0.0])
+    assert obs.eef_pos == pytest.approx([0.45, 0.0, 0.3])
+
+
+def test_observation_reads_cube_yaw_from_the_quaternions():
+    object_term = np.zeros(39)
+    for cube, angle in enumerate((0.3, -0.8, 1.1)):
+        block = cube * 7
+        object_term[block + 3] = math.cos(angle / 2)
+        object_term[block + 6] = math.sin(angle / 2)
+
+    obs = observation_from_arrays(np.zeros(3), np.array([1.0, 0.0, 0.0, 0.0]), object_term)
+
+    assert obs.cube_yaw == pytest.approx([0.3, -0.8, 1.1])
+
+
+def test_an_observation_term_from_another_task_is_rejected():
+    with pytest.raises(ValueError, match="is this the stacking task"):
+        observation_from_arrays(np.zeros(3), np.array([1.0, 0.0, 0.0, 0.0]), np.zeros(12))

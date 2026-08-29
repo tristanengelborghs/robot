@@ -23,6 +23,8 @@ help:
 	@echo "code      tunnel browser VS Code to http://localhost:8080"
 	@echo "smoke     headless peg-insert on the GPU box; verifies Isaac Lab still runs"
 	@echo "record    scripted cube-stacking demos on the GPU box -> HDF5 (Component 2)"
+	@echo "teleop    record demos by hand: keyboard teleoperation over the browser viewer"
+	@echo "tunnel    forward that viewer to http://localhost:8090/viewer/ (run in its own shell)"
 	@echo "replay    replay those demos and validate them against the recorded states"
 	@echo "dataset   pull the dataset to the laptop, print its shapes, plot the end-effector"
 	@echo "source    copy Isaac Lab's Factory task source into reference/ (read it offline)"
@@ -73,6 +75,14 @@ smoke:
 
 record: sync
 	PYTHONPATH=. .venv/bin/python scripts/run_remote.py record --num-demos $(NUM_DEMOS)
+
+# Human teleoperation needs three things at once: the tunnel (its own shell),
+# a browser on the viewer, and this run. Start `make tunnel` first.
+teleop: sync
+	PYTHONPATH=. .venv/bin/python scripts/run_remote.py teleop --num-demos $(NUM_DEMOS)
+
+tunnel:
+	PYTHONPATH=. .venv/bin/python scripts/run_remote.py tunnel
 
 replay:
 	PYTHONPATH=. .venv/bin/python scripts/run_remote.py replay

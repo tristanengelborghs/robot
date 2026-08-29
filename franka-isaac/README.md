@@ -97,6 +97,20 @@ Four things about that box cost time to learn, so they are encoded in
 4. **A capped `docker exec` leaks the simulator.** `timeout` kills the local
    client; the process inside the container keeps running, and keeps billing.
    `make kill` is the cleanup.
+5. **The container has no system Python.** `python3` is not on its PATH at all;
+   `/isaac-sim/python.sh` is the only interpreter, which is why
+   `remote.patch_container` falls back to it.
+6. **`make sync` deletes the project directory on the box** before copying a
+   fresh one in, so nothing recorded may live inside it. Datasets are written to
+   `/workspace/datasets`, outside the synced tree. One set of demonstrations was
+   lost learning this.
+7. **`brev start -d` returns while the box is still `STARTING`,** and a `brev
+   refresh` run then writes an ssh config for a machine with no address yet.
+   `make start` polls until `RUNNING`.
+8. **Brev's ssh config enables connection multiplexing,** so `ssh -N -L ...`
+   against an existing master registers the forwards and exits immediately: the
+   tunnel is up, the command looks like it failed, and ctrl-C closes nothing.
+   `make tunnel` passes `ControlPath=none` to get a connection of its own.
 
 The instance's public IP changes on every restart, which is what `make start`
 runs `brev refresh` for. The repo is private, so the host clones it over
@@ -118,11 +132,54 @@ make dataset               # pulls the HDF5 here, prints shapes, plots the end-e
 make stop
 ```
 
-Keyboard teleoperation on a headless box would mean `--livestream 2`, a browser
-WebRTC viewer and a human driving a Franka while the instance bills by the hour.
 A scripted controller records unattended, and it is Component 5's deliverable
 arriving early: if a controller with ground-truth poses cannot do the task, a
 policy is not going to either.
+
+### Recording by hand
+
+The same recorder, driven by a person instead:
+
+```bash
+make tunnel                # in its own shell; forwards the viewer
+make teleop                # then open http://localhost:8090/viewer/
+```
+
+`make teleop` runs Isaac Lab's own `record_demos.py` with `--teleop_device
+keyboard`. A keyboard device attaches to an application window, so unlike every
+other run in this project it cannot be headless: it streams instead, with
+`--livestream 2`, and the window it attaches to is served to a browser.
+
+Isaac Lab's `Se3Keyboard` bindings, with the viewer focused:
+
+| | | | |
+|---|---|---|---|
+| `W` / `S` | end-effector ±x | `Z` / `X` | roll ± |
+| `A` / `D` | end-effector ±y | `T` / `G` | pitch ± |
+| `Q` / `E` | end-effector ±z | `C` / `V` | yaw ± |
+| `K` | toggle the gripper | `L` | recentre the teleop device |
+| `R` | abandon the episode and reset | | |
+
+An episode is written out on its own once the cubes are stacked, and only
+successful episodes are exported — the same rule the scripted path follows.
+Demos land in `/workspace/datasets/stack_teleop.hdf5`, separate from the
+scripted ones, and `make dataset` pulls both.
+
+**The viewer needs ports this instance does not currently open.** Everything up
+to the network is verified working: the run starts, Kit's WebRTC extensions come
+up, and the viewer page loads over an ssh tunnel. But the page then signals over
+TCP 443 and takes its *video over WebRTC on UDP* (the running app opens ephemeral
+UDP ports), while the instance's security group allows port 22 alone. `ssh -L`
+forwards TCP only, so a tunnel can serve the page and can never serve the
+stream — the viewer sits on "WAITING FOR STREAM...".
+
+To actually drive the arm, the instance needs TCP 443 and the WebRTC media UDP
+range reachable, and then the viewer is browsed directly at
+`https://<instance-public-ip>/viewer/` — which is what the launchable's viewer is
+hard-wired for (`main.tsx` sets `signalingPort: 443` and a `mediaServer` fixed to
+the box's public IP). That is a security-group change on the Brev account, and a
+decision about exposing a GPU box to the internet, so it is deliberately not
+automated here.
 
 ## Status
 

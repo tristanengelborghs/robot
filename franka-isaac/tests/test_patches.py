@@ -20,7 +20,10 @@ applied. A file in neither state is the case that matters, and the one these
 tests exist to catch: Isaac Lab has changed underneath the patch.
 """
 
+import ast
+import dataclasses
 import importlib.util
+import sys
 from pathlib import Path
 
 import pytest
@@ -30,9 +33,17 @@ VENDORED = ROOT / "reference/isaaclab_source"
 
 
 def load_patch_module():
+    """Import scripts/patch_container.py by path.
+
+    It has to be registered in ``sys.modules`` before it is executed: it defines
+    a dataclass, and ``@dataclass`` resolves the class's annotations through
+    ``sys.modules[cls.__module__]``, which does not exist yet for a module
+    loaded straight from a path.
+    """
     path = ROOT / "scripts/patch_container.py"
     spec = importlib.util.spec_from_file_location("patch_container", path)
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
@@ -56,31 +67,32 @@ def assert_patchable(source: str, *, pattern: str, marker: str, what: str) -> No
     )
 
 
-def test_franka_asset_pattern_still_matches(patcher):
+def upstream_path_for(patch) -> str:
+    """Where this patch's target lives inside the vendored Isaac Lab copy."""
+    return str(patch.path).removeprefix("/workspace/isaaclab/")
+
+
+@pytest.mark.parametrize("index", range(3), ids=lambda i: f"patch{i}")
+def test_every_patch_still_matches_its_target(patcher, index):
+    patch = patcher.PATCHES[index]
     assert_patchable(
-        vendored("source/isaaclab_assets/isaaclab_assets/robots/franka.py"),
-        pattern=patcher.STALE_USD,
-        marker=patcher.MOVED_USD,
-        what="franka usd moved upstream",
+        vendored(upstream_path_for(patch)),
+        pattern=patch.old,
+        marker=patch.marker,
+        what=patch.name,
     )
 
 
-def test_keyboard_pattern_still_matches(patcher):
-    assert_patchable(
-        vendored("scripts/tools/replay_demos.py"),
-        pattern=patcher.KEYBOARD_IMPORT,
-        marker="headless keyboard stub",
-        what="replay keyboard headless",
-    )
+def test_all_patches_are_covered_by_the_parametrised_test(patcher):
+    # The parametrisation above is a fixed range; a fourth patch must not slip
+    # in unchecked.
+    assert len(patcher.PATCHES) == 3
 
 
-def test_state_validation_pattern_still_matches(patcher):
-    assert_patchable(
-        vendored("scripts/tools/replay_demos.py"),
-        pattern=patcher.VALIDATE_OLD,
-        marker="squeeze batch dim",
-        what="replay state validation shapes",
-    )
+def test_patches_have_distinct_markers(patcher):
+    # Two patches sharing a marker would make the second one a permanent no-op.
+    markers = [patch.marker for patch in patcher.PATCHES]
+    assert len(set(markers)) == len(markers)
 
 
 def test_a_file_matching_neither_is_caught():
@@ -88,32 +100,50 @@ def test_a_file_matching_neither_is_caught():
         assert_patchable("unrelated source", pattern="gone", marker="also gone", what="t")
 
 
-def test_the_stub_the_patch_injects_is_valid_python(patcher):
-    # It is spliced into a module at import time; a syntax error here would
-    # break replay_demos.py rather than fix it.
-    compile(patcher.KEYBOARD_STUB, "<stub>", "exec")
+def test_the_patched_files_still_parse(patcher):
+    """Every file, with all of its patches applied, is still valid Python.
+
+    This is the check that matters, and it cannot be done on a replacement in
+    isolation: the fragments are indented pieces of a function body, and one of
+    them deliberately ends on a dangling ``if`` whose body follows in the
+    original file. Only the finished file means anything.
+    """
+    by_file: dict[str, list] = {}
+    for patch in patcher.PATCHES:
+        by_file.setdefault(upstream_path_for(patch), []).append(patch)
+
+    for relative_path, patches in by_file.items():
+        source = vendored(relative_path)
+        for patch in patches:
+            if patch.marker not in source:
+                source = source.replace(patch.old, patch.new)
+        ast.parse(source, filename=relative_path)
 
 
 def test_patches_are_idempotent(tmp_path, patcher):
     source = vendored("scripts/tools/replay_demos.py")
-    if "squeeze batch dim" in source:
+    if patcher.VALIDATE_PATCH.marker in source:
         pytest.skip("vendored copy was taken from an already-patched container")
+
     target = tmp_path / "replay_demos.py"
     target.write_text(source)
+    patch = dataclasses.replace(patcher.VALIDATE_PATCH, path=target)
 
-    first = patcher.patch(target, patcher.VALIDATE_OLD, patcher.VALIDATE_NEW, marker="squeeze batch dim", what="t")
-    second = patcher.patch(target, patcher.VALIDATE_OLD, patcher.VALIDATE_NEW, marker="squeeze batch dim", what="t")
-
-    assert first is True
-    assert second is False, "a second sync must not apply the patch twice"
-    assert target.read_text().count("squeeze batch dim") == 1
+    assert patcher.apply(patch) is True
+    assert patcher.apply(patch) is False, "a second sync must not apply the patch twice"
+    assert target.read_text().count(patch.marker) == 1
 
 
 def test_a_patch_that_no_longer_applies_is_reported_not_silently_skipped(tmp_path, patcher, capsys):
     target = tmp_path / "moved_on.py"
     target.write_text("nothing here resembles the upstream source\n")
+    stale = patcher.Patch(
+        name="stale patch",
+        path=target,
+        old="search text that is gone",
+        new="replacement",
+        marker="never present",
+    )
 
-    applied = patcher.patch(target, "pattern that is gone", "replacement", marker="never", what="stale patch")
-
-    assert applied is False
-    assert "CHECK WHETHER IT IS STILL NEEDED" in capsys.readouterr().err
+    assert patcher.apply(stale) is False
+    assert "CHECK WHETHER THIS PATCH IS STILL NEEDED" in capsys.readouterr().err

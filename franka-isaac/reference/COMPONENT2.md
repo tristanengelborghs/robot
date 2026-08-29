@@ -96,6 +96,32 @@ upstream source.
    *"State shape of root_pose for asset robot don't match"* at the first
    comparison — for Isaac Lab's own recorded datasets as much as for ours.
 
+## Recording by hand
+
+note.md's Component 2 asks for keyboard teleoperation, and the plumbing for it
+is built and verified as far as the network allows: `make teleop` runs Isaac
+Lab's own `record_demos.py` with `--teleop_device keyboard`, streaming rather
+than headless because a keyboard device attaches to an application window.
+Launched, it starts the app, brings up Kit's WebRTC extensions, and serves the
+viewer page — which loads correctly over an ssh tunnel.
+
+It stops at one hard boundary. The viewer signals over TCP 443 and takes its
+video over **WebRTC on UDP**; the running app opens ephemeral UDP ports for it.
+The instance's security group allows port 22 and nothing else, and `ssh -L`
+forwards TCP only, so a tunnel can serve the page and can never serve the
+stream. The viewer sits on "WAITING FOR STREAM...", which is the correct
+behaviour for a media path that has nowhere to go.
+
+Crossing it means opening TCP 443 and the WebRTC media UDP range on the
+instance, then browsing directly to `https://<public-ip>/viewer/` — what the
+launchable's viewer is hard-wired for: its `main.tsx` sets
+`signalingPort: 443` and a `mediaServer` fixed to the box's public IP. That is a
+security-group change and a decision about exposing a GPU box to the internet,
+so it is not automated here.
+
+This is why the scripted controller was worth building first rather than second.
+It records unattended, over ssh, with no ports open at all.
+
 ## What this leaves for Component 5
 
 Component 5 asks for a scripted controller with state-transition logs and a video

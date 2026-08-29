@@ -18,5 +18,25 @@ ignore = ["E402", "RET504", "RET505", "SIM102", "SIM108", "SIM117"]
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
+# Isaac Lab's own scripts group their imports as: third-party, then isaaclab,
+# then isaaclab_tasks and the other extensions. That grouping says something
+# real -- which of these need a running simulator -- so it is declared here
+# rather than flattened away by the import sorter.
+[tool.ruff.lint.isort]
+known-first-party = ["harness", "insertion"]
+section-order = [
+    "future",
+    "standard-library",
+    "third-party",
+    "isaaclab",
+    "isaaclab-extensions",
+    "first-party",
+    "local-folder",
+]
+
+[tool.ruff.lint.isort.sections]
+isaaclab = ["isaaclab"]
+isaaclab-extensions = ["isaaclab_tasks", "isaaclab_assets", "isaaclab_rl", "isaaclab_mimic", "isaaclab_teleop"]
+
 [tool.ruff.format]
 docstring-code-format = true
