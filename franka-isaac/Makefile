@@ -8,6 +8,8 @@ VIDEO_LEN := 200
 NUM_DEMOS := 5
 TELEOP_DEVICE := keyboard
 DATASET := datasets/stack_scripted.hdf5
+DEMOS := 100
+RUN := record-lift
 BOX_DATASETS := /workspace/datasets
 ISAACLAB := /workspace/isaaclab
 WS := /workspace/robot/franka-isaac
@@ -30,6 +32,10 @@ help:
 	@echo "bridge-axes  print what the controller reports, to check the axis mapping"
 	@echo "bridge-demo  send scripted motion instead of a controller, to test the link"
 	@echo "replay    replay those demos and validate them against the recorded states"
+	@echo "record-lift  detached: record DEMOS scripted pick-and-lift demonstrations"
+	@echo "logs      tail a detached run's log (RUN=record-lift)"
+	@echo "runs      list the detached runs on the box"
+	@echo "pull-runs copy logs and checkpoints back to the laptop"
 	@echo "dataset   pull the dataset to the laptop, print its shapes, plot the end-effector"
 	@echo "source    copy Isaac Lab's Factory task source into reference/ (read it offline)"
 	@echo "teleop-source  same, for the teleop/recording/stack-task sources"
@@ -102,6 +108,24 @@ bridge-demo:
 
 replay:
 	PYTHONPATH=. .venv/bin/python scripts/run_remote.py replay
+
+# Long runs are detached on the box: they outlive the ssh connection, so a
+# sleeping laptop cannot kill a job the instance is still being billed for.
+record-lift: sync
+	PYTHONPATH=. .venv/bin/python -c "import subprocess; from harness import remote; \
+		subprocess.run(remote.detached(remote.record_lift($(DEMOS)), 'record-lift'), shell=True)"
+
+logs:
+	PYTHONPATH=. .venv/bin/python -c "import subprocess; from harness import remote; \
+		subprocess.run(remote.tail_log('$(RUN)'), shell=True)"
+
+runs:
+	PYTHONPATH=. .venv/bin/python -c "import subprocess; from harness import remote; \
+		subprocess.run(remote.list_runs(), shell=True)"
+
+pull-runs:
+	PYTHONPATH=. .venv/bin/python -c "import subprocess; from harness import remote; \
+		subprocess.run(remote.pull_runs(), shell=True)"
 
 dataset:
 	mkdir -p datasets

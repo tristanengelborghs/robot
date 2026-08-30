@@ -250,3 +250,39 @@ def test_kill_tolerates_nothing_matching():
     # pkill exits non-zero when it matches nothing, which is the normal case for
     # most of these names and must not read as a failure.
     assert "|| true" in remote.kill_sim()
+
+
+def test_a_detached_run_survives_a_dropped_connection():
+    """Long runs must not die with the ssh session.
+
+    Recording takes minutes and training takes hours. A run killed by a sleeping
+    laptop still leaves the instance billing, which is the worst of both.
+    """
+    cmd = remote.detached("./isaaclab.sh -p scripts/train.py", "train")
+    assert "setsid" in cmd, "must be detached from the terminal"
+    assert "nohup" in cmd
+    assert "< /dev/null" in cmd, "stdin closed so nothing blocks on input"
+    assert f"{remote.RUNS_DIR}/train.log" in cmd
+
+
+def test_runs_are_written_outside_the_synced_directory():
+    # `make sync` deletes WORKDIR before copying a fresh one in, which is how a
+    # set of recorded demonstrations was lost once already.
+    assert not remote.RUNS_DIR.startswith(remote.WORKDIR)
+
+
+def test_the_lift_recording_command_is_headless():
+    cmd = remote.record_lift(num_demos=25)
+    assert "record_lift.py" in cmd
+    assert "--num_demos 25" in cmd
+    assert "--headless" in cmd and "--viz none" in cmd
+    assert remote.LIFT_TASK in cmd
+
+
+def test_the_lift_dataset_is_separate_from_the_stacking_ones():
+    assert remote.LIFT_DATASET_FILE not in (remote.DATASET_FILE, remote.TELEOP_DATASET_FILE)
+    assert remote.LIFT_DATASET_FILE.startswith(remote.DATASET_DIR)
+
+
+def test_kill_knows_about_the_lift_recorder():
+    assert "record_lift.py" in remote.kill_sim()

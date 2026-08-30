@@ -33,21 +33,45 @@ keeps this honest whichever frame the controller interprets the delta in.
 
 from __future__ import annotations
 
-import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 import numpy as np
+
+from harness.control import (
+    YAW_SYMMETRY,
+    EpisodeLog,
+    Transition,
+    horizontal_distance,
+    pose_action,
+    wrap_to_pi,
+    yaw_error,
+    yaw_from_quat,
+)
+
+__all__ = [
+    "YAW_SYMMETRY",
+    "CUBE_COUNT",
+    "POSE_LENGTH",
+    "STACK_PLAN",
+    "EpisodeLog",
+    "Observation",
+    "StackConfig",
+    "StackStateMachine",
+    "State",
+    "Transition",
+    "horizontal_distance",
+    "observation_from_arrays",
+    "pose_action",
+    "wrap_to_pi",
+    "yaw_error",
+    "yaw_from_quat",
+]
 
 # Cube 1 is the base of the stack, cube 2 goes on top of it, cube 3 on top of
 # that: mdp.cubes_stacked requires cube_1.z < cube_2.z < cube_3.z. Indices here
 # are zero-based into the cube arrays, so cube_1 is index 0.
 STACK_PLAN: tuple[tuple[int, int], ...] = ((1, 0), (2, 1))
-
-# A square cube looks the same every quarter turn, so a yaw error only ever
-# needs to be driven into this half-window.
-YAW_SYMMETRY = math.pi / 2
-
 
 class State(Enum):
     """One step of a pick-and-place, plus the two terminal states.
@@ -125,31 +149,6 @@ class Observation:
     cube_yaw: np.ndarray  # (3,)
 
 
-@dataclass
-class Transition:
-    """One state change, for the log the deliverable asks for."""
-
-    step: int
-    frm: State
-    to: State
-    reason: str
-
-
-def wrap_to_pi(angle: float) -> float:
-    """Wrap an angle into ``[-pi, pi)``."""
-    return (angle + math.pi) % (2 * math.pi) - math.pi
-
-
-def yaw_error(target: float, current: float) -> float:
-    """Smallest rotation from ``current`` to ``target``, up to cube symmetry.
-
-    A square cube presents an identical face every quarter turn, so aligning to
-    within a quarter turn is aligning. Without this the controller would happily
-    unwind 80 degrees to reach a grasp it was already in.
-    """
-    return wrap_to_pi(target - current + YAW_SYMMETRY / 2) % YAW_SYMMETRY - YAW_SYMMETRY / 2
-
-
 # Layout of one cube's block in the task's `object` observation term, from
 # mdp.object_obs: a position followed by a quaternion, the position already
 # relative to the environment origin.
@@ -198,17 +197,6 @@ def observation_from_arrays(
         cube_pos=poses[:, :3].astype(float).copy(),
         cube_yaw=np.array([yaw_from_quat(pose[3:7]) for pose in poses]),
     )
-
-
-def yaw_from_quat(quat: np.ndarray) -> float:
-    """Yaw of a ``wxyz`` quaternion, in radians.
-
-    Isaac Lab reports orientations as ``wxyz`` in the simulator (the ``xyzw``
-    conversion happens only on the way into an HDF5 file), so this takes them in
-    that order.
-    """
-    w, x, y, z = quat
-    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
 
 
 class StackStateMachine:
@@ -436,13 +424,16 @@ class StackStateMachine:
     def _action(self, pos_err: np.ndarray, yaw_err: float, *, gripper_open: bool) -> np.ndarray:
         """Turn a pose error into the 7 numbers the environment wants."""
         cfg = self.cfg
-        action = np.zeros(7, dtype=np.float32)
-        # Divide the config's action scale back out, so the clip below is a
-        # limit on real commanded motion rather than on an arbitrary number.
-        action[:3] = np.clip(cfg.kp_pos * pos_err / cfg.action_scale, -cfg.max_pos_step, cfg.max_pos_step)
-        action[5] = np.clip(cfg.kp_yaw * yaw_err / cfg.action_scale, -cfg.max_yaw_step, cfg.max_yaw_step)
-        action[6] = 1.0 if gripper_open else -1.0
-        return action
+        return pose_action(
+            pos_err,
+            yaw_err,
+            gripper_open=gripper_open,
+            kp_pos=cfg.kp_pos,
+            kp_yaw=cfg.kp_yaw,
+            max_pos_step=cfg.max_pos_step,
+            max_yaw_step=cfg.max_yaw_step,
+            action_scale=cfg.action_scale,
+        )
 
     def _go(self, to: State, reason: str) -> None:
         self.transitions.append(Transition(self.step_count, self.state, to, reason))
@@ -450,21 +441,3 @@ class StackStateMachine:
         self.state_step = 0
 
 
-def horizontal_distance(vec: np.ndarray) -> float:
-    """Length of ``vec`` in the xy plane, ignoring height."""
-    return float(np.linalg.norm(vec[:2]))
-
-
-@dataclass
-class EpisodeLog:
-    """What a single scripted episode did, for the state-transition log."""
-
-    transitions: list[Transition] = field(default_factory=list)
-    steps: int = 0
-    succeeded: bool = False
-
-    def format(self) -> str:
-        lines = [f"{'step':>6}  {'from':<14} -> {'to':<14} reason"]
-        lines += [f"{t.step:>6}  {t.frm.value:<14} -> {t.to.value:<14} {t.reason}" for t in self.transitions]
-        lines.append(f"{self.steps} steps, {'success' if self.succeeded else 'FAILED'}")
-        return "\n".join(lines)

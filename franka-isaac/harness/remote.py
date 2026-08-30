@@ -43,6 +43,10 @@ TELEOP_TASK = "Isaac-Stack-Cube-Franka-IK-Rel-v0"
 DATASET_DIR = "/workspace/datasets"
 DATASET_FILE = f"{DATASET_DIR}/stack_scripted.hdf5"
 TELEOP_DATASET_FILE = f"{DATASET_DIR}/stack_teleop.hdf5"
+LIFT_DATASET_FILE = f"{DATASET_DIR}/lift_scripted.hdf5"
+
+# Pick-and-lift: the task the learning work starts from. See reference/LIFT.md.
+LIFT_TASK = "Isaac-Lift-Cube-Franka-IK-Rel-v0"
 
 # nginx on the box proxies /viewer/ to the web-viewer app on 5173, and Isaac
 # Sim's WebRTC server signals on 8211. Only port 22 is open to the internet, so
@@ -257,10 +261,66 @@ SIM_SCRIPTS = (
     "random_agent.py",
     "zero_agent.py",
     "record_scripted.py",
+    "record_lift.py",
     "record_demos.py",
     "replay_demos.py",
     "gamepad_probe.py",
 )
+
+
+# Where long runs write their logs and checkpoints. Outside WORKDIR, because
+# `make sync` deletes that directory before copying a fresh one in.
+RUNS_DIR = "/workspace/runs"
+
+
+def detached(inner: str, name: str) -> str:
+    """Start a long run on the box that outlives this ssh connection.
+
+    Recording a hundred demonstrations takes many minutes; training takes hours.
+    Run through a plain ``ssh`` and the process dies when the laptop sleeps or
+    the connection blips -- and the instance carries on billing regardless, which
+    is the worst of both outcomes.
+
+    ``setsid`` detaches it from the terminal, stdin is closed so nothing can
+    block waiting for input, and everything goes to a log file that
+    :func:`tail_log` can follow later.
+    """
+    log = f"{RUNS_DIR}/{name}.log"
+    command = (
+        f"mkdir -p {RUNS_DIR} && "
+        f"setsid nohup {inner} > {log} 2>&1 < /dev/null & "
+        f"sleep 1 && echo 'started {name}, logging to {log}'"
+    )
+    return ssh(in_container(command, workdir=WORKDIR))
+
+
+def tail_log(name: str, lines: int = 40) -> str:
+    """Show the end of a detached run's log."""
+    return ssh(in_container(f"tail -n {lines} {RUNS_DIR}/{name}.log", workdir=WORKDIR))
+
+
+def list_runs() -> str:
+    """What logs exist on the box, and how recent they are."""
+    return ssh(in_container(f"ls -lht {RUNS_DIR}/ 2>/dev/null || echo 'no runs yet'", workdir=WORKDIR))
+
+
+def pull_runs(local_dir: str = "runs") -> str:
+    """Copy logs and checkpoints back, because the container is not persistent."""
+    return (
+        f"ssh {INSTANCE} 'rm -rf ~/runs && docker cp {CONTAINER}:{RUNS_DIR} ~/runs' && "
+        f"mkdir -p {local_dir} && rsync -az {INSTANCE}:~/runs/ {local_dir}/"
+    )
+
+
+def record_lift(num_demos: int = 100, dataset_file: str = LIFT_DATASET_FILE) -> str:
+    """Command to record scripted pick-and-lift demonstrations, headless."""
+    return isaaclab(
+        "scripts/record_lift.py",
+        task=LIFT_TASK,
+        num_envs=None,  # record_lift.py fixes this at 1
+        extra=(f"--num_demos {num_demos}", f"--dataset_file {dataset_file}"),
+        launcher=f"{ISAACLAB}/isaaclab.sh -p",
+    )
 
 
 def kill_sim(script_name: str | None = None) -> str:
