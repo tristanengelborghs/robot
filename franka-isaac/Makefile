@@ -33,6 +33,9 @@ help:
 	@echo "bridge-demo  send scripted motion instead of a controller, to test the link"
 	@echo "replay    replay those demos and validate them against the recorded states"
 	@echo "record-lift  detached: record DEMOS scripted pick-and-lift demonstrations"
+	@echo "train-diffusion  detached: train the diffusion policy on the box"
+	@echo "eval-diffusion   detached: roll the trained policy out and count successes"
+	@echo "train-ppo        detached: train PPO from scratch"
 	@echo "logs      tail a detached run's log (RUN=record-lift)"
 	@echo "runs      list the detached runs on the box"
 	@echo "pull-runs copy logs and checkpoints back to the laptop"
@@ -114,6 +117,18 @@ replay:
 record-lift: sync
 	PYTHONPATH=. .venv/bin/python -c "import subprocess; from harness import remote; \
 		subprocess.run(remote.detached(remote.record_lift($(DEMOS)), 'record-lift'), shell=True)"
+
+train-diffusion: sync
+	PYTHONPATH=. .venv/bin/python -c "import subprocess; from harness import remote; \
+		subprocess.run(remote.detached(remote.train_diffusion(), 'train-diffusion'), shell=True)"
+
+train-ppo: sync
+	PYTHONPATH=. .venv/bin/python -c "import subprocess; from harness import remote; \
+		subprocess.run(remote.detached(remote.train_ppo(), 'train-ppo'), shell=True)"
+
+eval-diffusion: sync
+	PYTHONPATH=. .venv/bin/python -c "import subprocess; from harness import remote; \
+		subprocess.run(remote.detached(remote.eval_diffusion(), 'eval-diffusion'), shell=True)"
 
 logs:
 	PYTHONPATH=. .venv/bin/python -c "import subprocess; from harness import remote; \

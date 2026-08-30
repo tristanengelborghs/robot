@@ -262,6 +262,9 @@ SIM_SCRIPTS = (
     "zero_agent.py",
     "record_scripted.py",
     "record_lift.py",
+    "train_diffusion.py",
+    "train_ppo.py",
+    "eval_diffusion.py",
     "record_demos.py",
     "replay_demos.py",
     "gamepad_probe.py",
@@ -319,6 +322,43 @@ def record_lift(num_demos: int = 100, dataset_file: str = LIFT_DATASET_FILE) -> 
         task=LIFT_TASK,
         num_envs=None,  # record_lift.py fixes this at 1
         extra=(f"--num_demos {num_demos}", f"--dataset_file {dataset_file}"),
+        launcher=f"{ISAACLAB}/isaaclab.sh -p",
+    )
+
+
+def train_diffusion(epochs: int = 300, dataset: str = LIFT_DATASET_FILE) -> str:
+    """Train the diffusion policy on the box. Needs no simulator, only a GPU."""
+    return (
+        f"{ISAACLAB}/isaaclab.sh -p scripts/train_diffusion.py "
+        f"--dataset {dataset} --epochs {epochs} --out {RUNS_DIR}/diffusion"
+    )
+
+
+def eval_diffusion(episodes: int = 50, num_envs: int = 25) -> str:
+    """Roll the trained diffusion policy out and count successes."""
+    return isaaclab(
+        "scripts/eval_diffusion.py",
+        task=LIFT_TASK,
+        num_envs=None,  # the script has its own --num_envs
+        extra=(
+            f"--episodes {episodes}",
+            f"--num_envs {num_envs}",
+            f"--checkpoint {RUNS_DIR}/diffusion/policy.pt",
+        ),
+        launcher=f"{ISAACLAB}/isaaclab.sh -p",
+    )
+
+
+def train_ppo(iterations: int = 500, num_envs: int = 1024, pick_only: bool = False) -> str:
+    """Train PPO on the lift task, optionally without the goal-tracking reward."""
+    extra = [f"--iterations {iterations}", f"--num_envs {num_envs}", f"--out {RUNS_DIR}/ppo"]
+    if pick_only:
+        extra.append("--pick-only")
+    return isaaclab(
+        "scripts/train_ppo.py",
+        task=LIFT_TASK,
+        num_envs=None,  # the script has its own --num_envs
+        extra=tuple(extra),
         launcher=f"{ISAACLAB}/isaaclab.sh -p",
     )
 
