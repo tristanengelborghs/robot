@@ -36,6 +36,25 @@ def sender(device):
         yield sender
 
 
+@pytest.fixture
+def patient_device():
+    """A device that does not time commands out.
+
+    The staleness window is 0.2s, which is right for controlling an arm and
+    wrong for tests about parsing: a slow poll on a loaded machine lets the
+    command expire and the test fails for a reason it is not about.
+    """
+    device = NetworkTeleopDevice(port=0, max_age=3600.0)
+    yield device
+    device.close()
+
+
+@pytest.fixture
+def patient_sender(patient_device):
+    with CommandSender(port=patient_device.address[1]) as sender:
+        yield sender
+
+
 def wait_until(predicate, timeout: float = 2.0) -> bool:
     """Poll until true. The reader is a thread, so arrival is not instant."""
     deadline = time.monotonic() + timeout
@@ -88,41 +107,41 @@ def test_a_disconnected_laptop_stops_the_arm(device):
     assert device.advance() == pytest.approx(STOP.as_action())
 
 
-def test_only_the_newest_command_is_acted_on(device, sender):
+def test_only_the_newest_command_is_acted_on(patient_device, patient_sender):
     # A control link, not a queue: a backlog would make the arm lag further
     # behind the longer it ran.
     for step in range(20):
-        sender.send(Se3Command(dpos=(step / 1000, 0.0, 0.0)))
+        patient_sender.send(Se3Command(dpos=(step / 1000, 0.0, 0.0)))
 
-    assert wait_until(lambda: device.stats.received >= 1)
+    assert wait_until(lambda: patient_device.stats.received >= 1)
     time.sleep(0.05)
-    assert device.advance()[0] == pytest.approx(0.019)
+    assert patient_device.advance()[0] == pytest.approx(0.019)
 
 
-def test_a_malformed_newest_line_falls_back_to_the_last_good_one(device, sender):
+def test_a_malformed_newest_line_falls_back_to_the_last_good_one(patient_device, patient_sender):
     # The reader walks backwards from the newest line and stops at the first one
     # it can decode, so garbage at the head of the stream costs one command
     # rather than the whole batch.
-    sender.send(Se3Command(dpos=(0.01, 0.0, 0.0)))
-    sender._socket.sendall(b"this is not json\n")
+    patient_sender.send(Se3Command(dpos=(0.01, 0.0, 0.0)))
+    patient_sender._socket.sendall(b"this is not json\n")
 
-    assert wait_until(lambda: device.stats.received == 1)
-    assert device.stats.malformed == 1
-    assert device.advance()[0] == pytest.approx(0.01)
+    assert wait_until(lambda: patient_device.stats.received == 1)
+    assert wait_until(lambda: patient_device.stats.malformed == 1)
+    assert patient_device.advance()[0] == pytest.approx(0.01)
 
 
-def test_garbage_never_becomes_motion(device, sender):
+def test_garbage_never_becomes_motion(patient_device, patient_sender):
     # Whether garbage is counted depends on how the stream happens to be split
     # into packets, which is not ours to control and not worth asserting. What
     # must hold either way: rubbish on the wire never moves the arm, and a real
     # command after it still gets through.
-    sender._socket.sendall(b"rubbish\nalso rubbish\n")
-    assert wait_until(lambda: device.stats.malformed > 0 or device.stats.received > 0)
-    assert device.advance() == pytest.approx(STOP.as_action())
+    patient_sender._socket.sendall(b"rubbish\nalso rubbish\n")
+    assert wait_until(lambda: patient_device.stats.malformed > 0)
+    assert patient_device.advance() == pytest.approx(STOP.as_action())
 
-    sender.send(Se3Command(dpos=(0.02, 0.0, 0.0)))
-    assert wait_until(lambda: device.stats.received == 1)
-    assert device.advance()[0] == pytest.approx(0.02)
+    patient_sender.send(Se3Command(dpos=(0.02, 0.0, 0.0)))
+    assert wait_until(lambda: patient_device.stats.received == 1)
+    assert patient_device.advance()[0] == pytest.approx(0.02)
 
 
 def test_decoding_rejects_a_line_that_is_not_a_command():
