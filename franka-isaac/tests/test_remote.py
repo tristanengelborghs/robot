@@ -224,3 +224,29 @@ def test_teleop_can_ask_for_a_gamepad():
     # DualSense profile among others, so a controller on the laptop reaches the
     # simulator on the box.
     assert "--teleop_device gamepad" in remote.record_teleop(device="gamepad")
+
+
+def test_kill_targets_every_simulator_entry_point_by_default():
+    """`make kill` must not know about only one script.
+
+    It used to target random_agent.py alone, left over from when that was the
+    only thing that ran. A teleoperation session left running because the
+    cleanup had never heard of it bills exactly as much as one nobody tried to
+    stop.
+    """
+    cmd = remote.kill_sim()
+    for script in ("record_demos.py", "record_scripted.py", "replay_demos.py", "random_agent.py"):
+        assert script in cmd, f"{script} can start a simulator but kill_sim ignores it"
+
+
+def test_kill_can_still_target_one_script():
+    # Scripts cleaning up after their own run want to kill only their own.
+    cmd = remote.kill_sim("replay_demos.py")
+    assert "replay_demos.py" in cmd
+    assert "record_demos.py" not in cmd
+
+
+def test_kill_tolerates_nothing_matching():
+    # pkill exits non-zero when it matches nothing, which is the normal case for
+    # most of these names and must not read as a failure.
+    assert "|| true" in remote.kill_sim()

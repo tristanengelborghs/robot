@@ -249,10 +249,33 @@ def viewer_url() -> str:
     return f"http://localhost:{LOCAL_VIEWER_PORT}/viewer/"
 
 
-def kill_sim(script_name: str = "random_agent.py") -> str:
-    """Kill a simulator process left behind inside the container.
+# Every script of ours, or Isaac Lab's, that starts a simulator in the
+# container. `make kill` needs all of them: a teleoperation session left running
+# because the cleanup only knew about random_agent.py bills exactly as much as
+# one nobody tried to stop.
+SIM_SCRIPTS = (
+    "random_agent.py",
+    "zero_agent.py",
+    "record_scripted.py",
+    "record_demos.py",
+    "replay_demos.py",
+    "gamepad_probe.py",
+)
 
-    ``timeout N docker exec ...`` kills only the local client; the process in
-    the container keeps running and keeps billing. This is the cleanup.
+
+def kill_sim(script_name: str | None = None) -> str:
+    """Kill simulator processes left running inside the container.
+
+    With no argument this targets every known entry point, which is what
+    ``make kill`` wants. Pass a name to kill just one, which is what a script
+    cleaning up after its own run wants.
+
+    This matters because a capped ``docker exec`` kills only the local client:
+    the process inside the container keeps running, and the instance keeps
+    billing, until someone notices.
     """
-    return ssh(f"docker exec {CONTAINER} pkill -f {shlex.quote(script_name)}")
+    names = (script_name,) if script_name else SIM_SCRIPTS
+    # `|| true` per name: pkill exits non-zero when nothing matched, which is
+    # the normal case for most of these and not a failure.
+    inner = " ; ".join(f"pkill -f {shlex.quote(name)} || true" for name in names)
+    return ssh(f"docker exec {CONTAINER} bash -lc {shlex.quote(inner)}")

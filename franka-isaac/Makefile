@@ -37,7 +37,7 @@ help:
 	@echo "video     record an mp4 of the task and pull it into reference/videos/"
 	@echo "ext       pip install source/insertion into Isaac Lab's python on the box"
 	@echo "envs      list the gym tasks our extension registers"
-	@echo "kill      kill a simulator left running in the container (it bills until you do)"
+	@echo "kill      stop any simulator running in the container (it bills until you do)"
 	@echo "stop      stop the box — do this every time you walk away"
 
 install:
@@ -111,7 +111,7 @@ dataset:
 		--plot --plot-file reference/stack_scripted.ee.png
 
 kill:
-	ssh $(INSTANCE) 'docker exec $(CONTAINER) pkill -f random_agent.py' || true
+	PYTHONPATH=. .venv/bin/python -c "import subprocess; from harness import remote; subprocess.run(remote.kill_sim(), shell=True)"
 
 clean:
 	rm -rf runs .pytest_cache
