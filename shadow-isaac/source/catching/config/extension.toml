@@ -1,0 +1,16 @@
+[package]
+version = "0.1.0"
+title = "Catch (Shadow Hand)"
+description = "Throw-and-catch on a Shadow Hand in Isaac Lab"
+repository = "https://github.com/tristanengelborghs/robot"
+keywords = ["extension", "isaaclab", "manipulation", "shadow-hand"]
+author = "Tristan Engelborghs"
+maintainer = "Tristan Engelborghs"
+
+[dependencies]
+"isaaclab" = {}
+"isaaclab_assets" = {}
+"isaaclab_tasks" = {}
+
+[[python.module]]
+name = "catching"

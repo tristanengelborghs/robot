@@ -1,0 +1,28 @@
+# Formatting and lint config only. Deliberately NOT the root pyproject.toml
+# Isaac Lab's template generator emits: that declares `name = "isaaclab-dev"`
+# and a [tool.uv.sources] table pointing at paths that exist only inside the
+# Isaac Lab repo. The installable package lives in source/catching.
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = [".venv", "logs"]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "UP", "SIM", "RET"]
+ignore = ["E402", "RET504", "RET505", "SIM102", "SIM108", "SIM117"]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["harness", "catching"]
+section-order = ["future", "standard-library", "third-party", "isaaclab",
+                 "isaaclab-extensions", "first-party", "local-folder"]
+
+[tool.ruff.lint.isort.sections]
+isaaclab = ["isaaclab"]
+isaaclab-extensions = ["isaaclab_tasks", "isaaclab_assets", "isaaclab_rl"]
+
+[tool.ruff.format]
+docstring-code-format = true

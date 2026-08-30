@@ -1,0 +1,6 @@
+# Declared explicitly so the build backend is pinned rather than inferred, and
+# so the isolated build environment is built from a known list. Nothing beyond
+# setuptools is required: setup.py reads its metadata with stdlib tomllib.
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
