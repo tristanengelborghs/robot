@@ -1,5 +1,5 @@
 .PHONY: help install test start stop status shell code sync pull smoke video inspect source teleop-source \
-        record replay dataset ext envs kill clean
+        record teleop tunnel bridge bridge-axes bridge-demo replay dataset ext envs kill clean
 
 INSTANCE := isaac-launchable-e4cbd5
 CONTAINER := vscode
@@ -26,6 +26,9 @@ help:
 	@echo "record    scripted cube-stacking demos on the GPU box -> HDF5 (Component 2)"
 	@echo "teleop    record demos by hand over the browser viewer (TELEOP_DEVICE=keyboard|gamepad)"
 	@echo "tunnel    forward that viewer to http://localhost:8090/viewer/ (run in its own shell)"
+	@echo "bridge    laptop half of network teleop: read the controller, stream it to the box"
+	@echo "bridge-axes  print what the controller reports, to check the axis mapping"
+	@echo "bridge-demo  send scripted motion instead of a controller, to test the link"
 	@echo "replay    replay those demos and validate them against the recorded states"
 	@echo "dataset   pull the dataset to the laptop, print its shapes, plot the end-effector"
 	@echo "source    copy Isaac Lab's Factory task source into reference/ (read it offline)"
@@ -39,7 +42,7 @@ help:
 
 install:
 	python3.11 -m venv .venv && .venv/bin/python -m pip install -U pip && \
-	.venv/bin/python -m pip install pytest numpy h5py matplotlib
+	.venv/bin/python -m pip install pytest numpy h5py matplotlib pygame
 
 test:
 	.venv/bin/python -m pytest tests/ -q
@@ -85,6 +88,17 @@ teleop: sync
 
 tunnel:
 	PYTHONPATH=. .venv/bin/python scripts/run_remote.py tunnel
+
+# The laptop half of network teleoperation: reads the controller here and
+# streams commands to the device waiting in the container.
+bridge:
+	PYTHONPATH=. .venv/bin/python scripts/teleop_bridge.py
+
+bridge-axes:
+	PYTHONPATH=. .venv/bin/python scripts/teleop_bridge.py --show-axes
+
+bridge-demo:
+	PYTHONPATH=. .venv/bin/python scripts/teleop_bridge.py --demo
 
 replay:
 	PYTHONPATH=. .venv/bin/python scripts/run_remote.py replay

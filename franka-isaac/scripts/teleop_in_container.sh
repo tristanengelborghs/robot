@@ -39,9 +39,9 @@ DEVICE="${2:-keyboard}"
 DATASET_FILE="${3:-/workspace/datasets/stack_teleop.hdf5}"
 
 case "$DEVICE" in
-    keyboard | gamepad | spacemouse) ;;
+    keyboard | gamepad | network | spacemouse) ;;
     *)
-        echo "unknown teleop device: $DEVICE (expected keyboard, gamepad or spacemouse)" >&2
+        echo "unknown teleop device: $DEVICE (expected keyboard, gamepad, network or spacemouse)" >&2
         exit 2
         ;;
 esac

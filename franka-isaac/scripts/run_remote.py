@@ -148,7 +148,19 @@ GAMEPAD_BINDINGS = """  Gamepad (Isaac Lab's Se3Gamepad; a DualSense works, the 
   page focused. Sticks are proportional, so sensitivity is a matter of feel:
   GAMEPAD_POS_SENSITIVITY and GAMEPAD_ROT_SENSITIVITY tune it between runs."""
 
-BINDINGS = {"keyboard": KEYBOARD_BINDINGS, "gamepad": GAMEPAD_BINDINGS}
+NETWORK_BINDINGS = """  Network device: the controller is read on the laptop and its commands
+  are sent here over an ssh forward. In another shell:
+
+      make bridge
+
+  Left stick x/y, right stick z and yaw, cross toggles the gripper. The
+  simulator stops the arm by itself if the link goes quiet."""
+
+BINDINGS = {
+    "keyboard": KEYBOARD_BINDINGS,
+    "gamepad": GAMEPAD_BINDINGS,
+    "network": NETWORK_BINDINGS,
+}
 
 
 def print_teleop_instructions(args: argparse.Namespace) -> None:
@@ -189,7 +201,7 @@ def build_parser() -> argparse.ArgumentParser:
     teleop = subcommands.add_parser("teleop", help="record demonstrations by hand over the browser viewer")
     teleop.add_argument("--num-demos", type=int, default=5)
     teleop.add_argument("--dataset-file", default=remote.TELEOP_DATASET_FILE)
-    teleop.add_argument("--device", default="keyboard", choices=["keyboard", "gamepad", "spacemouse"])
+    teleop.add_argument("--device", default="keyboard", choices=["keyboard", "gamepad", "network", "spacemouse"])
     teleop.set_defaults(handler=run_teleop)
 
     replay = subcommands.add_parser("replay", help="replay a dataset and validate it against the recorded states")

@@ -209,9 +209,14 @@ def test_the_two_sides_accept_the_same_teleop_devices():
     script = (Path(__file__).resolve().parent.parent / "scripts/teleop_in_container.sh").read_text()
     cli = (Path(__file__).resolve().parent.parent / "scripts/run_remote.py").read_text()
 
-    for device in ("keyboard", "gamepad", "spacemouse"):
+    for device in ("keyboard", "gamepad", "spacemouse", "network"):
         assert device in script, f"{device} is offered by the CLI but not by the container script"
         assert device in cli, f"{device} is offered by the container script but not by the CLI"
+
+
+def test_teleop_can_ask_for_the_network_device():
+    # The laptop-side link, for when NVIDIA's stream will not carry a gamepad.
+    assert "--teleop_device network" in remote.record_teleop(device="network")
 
 
 def test_teleop_can_ask_for_a_gamepad():

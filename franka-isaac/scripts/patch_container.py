@@ -37,6 +37,11 @@ alternative is duplicating the seven hundred lines around it.
    "State shape of root_pose for asset robot don't match" at the first
    comparison -- for Isaac Lab's own recorded datasets as much as for ours.
 
+5. **A controller on the laptop cannot reach the simulator at all.** The
+   browser stream forwards keyboard and mouse but not a gamepad, so the fifth
+   and sixth patches register a "network" device that takes its commands from
+   ``harness.teleop_link`` over an ssh forward instead.
+
 4. **Gamepad is not a selectable device.** ``record_demos.py`` recognises two
    built-in device names, keyboard and spacemouse; anything else must come from
    ``env_cfg.teleop_devices``, which the stock stacking task does not define. So
@@ -165,30 +170,39 @@ VALIDATE_PATCH = Patch(
 
 
 # ---------------------------------------------------------------------------
-# 4. Gamepad as a built-in teleoperation device.
+# 4 and 5. Two more teleoperation devices in record_demos.py's factory.
 # ---------------------------------------------------------------------------
 #
-# This one is an addition rather than a bug fix, and it is here for the same
-# reason as the others: it cannot be done from our side. record_demos.py knows
-# two built-in device names, keyboard and spacemouse. Anything else has to come
-# from `env_cfg.teleop_devices`, which the stock stacking task does not define,
-# so `--teleop_device gamepad` exits with an error. Isaac Lab ships a perfectly
-# good Se3Gamepad; only the three-line factory stands between it and being
-# usable, and duplicating a 700-line script to change one function would be a
-# worse trade.
+# Both live in one patch because both edit the same three-line function, and a
+# patch anchored on another patch's output could never be checked against
+# pristine upstream source.
 #
-# Sensitivities are read from the environment so they can be tuned between runs
-# without re-patching -- analogue sticks are proportional, so the right value is
-# a matter of feel rather than something to be argued from first principles.
-# Isaac Lab's own defaults (1.0 and 1.6) are noticeably fast for stacking.
+# `gamepad` is an addition rather than a bug fix, and earns its place the same
+# way the fixes do: it cannot be done from our side. record_demos.py knows two
+# built-in device names, and anything else must come from
+# `env_cfg.teleop_devices`, which the stock stacking task does not define. Isaac
+# Lab ships a perfectly good Se3Gamepad; only this factory stands between it and
+# being usable, and duplicating seven hundred lines to change one function would
+# be a worse trade.
+#
+# `network` exists because NVIDIA's browser stream forwards keyboard and mouse
+# to the remote Isaac Sim but not a gamepad: Chrome sees a DualSense perfectly,
+# Kit never receives one, and five experiments could not find where in their
+# closed pipe it is dropped. So the controller goes the other way -- read on the
+# laptop, sent over an ssh forward to harness.teleop_link, which needs no
+# simulator and is tested without one.
+#
+# Gamepad sensitivities come from the environment so they can be tuned between
+# runs without re-patching; the right value is a matter of feel, and Isaac Lab's
+# own defaults (1.0 and 1.6) are noticeably fast for stacking.
 
-GAMEPAD_OLD = """    elif name == "spacemouse":
+DEVICES_OLD = """    elif name == "spacemouse":
         return Se3SpaceMouse(Se3SpaceMouseCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
     return None"""
 
-GAMEPAD_NEW = """    elif name == "spacemouse":
+DEVICES_NEW = """    elif name == "spacemouse":
         return Se3SpaceMouse(Se3SpaceMouseCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
-    elif name == "gamepad":  # patched: gamepad as a built-in device
+    elif name == "gamepad":  # patched: extra teleop devices
         from isaaclab.devices import Se3Gamepad, Se3GamepadCfg
 
         return Se3Gamepad(
@@ -197,18 +211,56 @@ GAMEPAD_NEW = """    elif name == "spacemouse":
                 rot_sensitivity=float(os.environ.get("GAMEPAD_ROT_SENSITIVITY", "0.8")),
             )
         )
+    elif name == "network":  # patched: extra teleop devices
+        import sys
+
+        import torch
+
+        # record_demos.py runs from /workspace/isaaclab, so our project is not
+        # on its path.
+        if PROJECT_ROOT not in sys.path:
+            sys.path.insert(0, PROJECT_ROOT)
+        from harness.teleop_link import NetworkTeleopDevice
+
+        # The recorder calls .repeat(num_envs, 1) on a device's output, so it
+        # must be a 1-D tensor of 7 numbers rather than a list.
+        device = NetworkTeleopDevice(
+            as_tensor=lambda values: torch.tensor(values, dtype=torch.float32)
+        )
+        print(f"[network] teleoperation link listening on {device.address}", flush=True)
+        print("[network] run `make bridge` on the laptop to connect", flush=True)
+        return device
     return None"""
 
-GAMEPAD_PATCH = Patch(
-    name="gamepad as a built-in device",
+DEVICES_PATCH = Patch(
+    name="gamepad and network teleop devices",
     path=RECORD,
-    old=GAMEPAD_OLD,
-    new=GAMEPAD_NEW,
-    marker="patched: gamepad as a built-in device",
+    old=DEVICES_OLD,
+    new=DEVICES_NEW,
+    marker="patched: extra teleop devices",
+)
+
+# The project root as the container sees it, defined next to the patch that
+# needs it so the two cannot drift apart.
+PROJECT_ROOT_PATCH = Patch(
+    name="project root for the network device",
+    path=RECORD,
+    old="logger = logging.getLogger(__name__)",
+    new=(
+        "logger = logging.getLogger(__name__)\n\n"
+        'PROJECT_ROOT = "/workspace/robot/franka-isaac"  # patched: where our harness lives'
+    ),
+    marker="patched: where our harness lives",
 )
 
 
-PATCHES = (FRANKA_USD_PATCH, KEYBOARD_PATCH, VALIDATE_PATCH, GAMEPAD_PATCH)
+PATCHES = (
+    FRANKA_USD_PATCH,
+    KEYBOARD_PATCH,
+    VALIDATE_PATCH,
+    PROJECT_ROOT_PATCH,
+    DEVICES_PATCH,
+)
 
 
 def apply(patch: Patch) -> bool:

@@ -72,7 +72,7 @@ def upstream_path_for(patch) -> str:
     return str(patch.path).removeprefix("/workspace/isaaclab/")
 
 
-@pytest.mark.parametrize("index", range(4), ids=lambda i: f"patch{i}")
+@pytest.mark.parametrize("index", range(5), ids=lambda i: f"patch{i}")
 def test_every_patch_still_matches_its_target(patcher, index):
     patch = patcher.PATCHES[index]
     assert_patchable(
@@ -86,7 +86,7 @@ def test_every_patch_still_matches_its_target(patcher, index):
 def test_all_patches_are_covered_by_the_parametrised_test(patcher):
     # The parametrisation above is a fixed range; a new patch must not slip in
     # unchecked.
-    assert len(patcher.PATCHES) == 4
+    assert len(patcher.PATCHES) == 5
 
 
 def test_patches_have_distinct_markers(patcher):
