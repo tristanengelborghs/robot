@@ -286,3 +286,22 @@ def test_the_lift_dataset_is_separate_from_the_stacking_ones():
 
 def test_kill_knows_about_the_lift_recorder():
     assert "record_lift.py" in remote.kill_sim()
+
+
+def test_rendering_is_not_headless():
+    # The whole point is a picture; --viz none would produce empty files.
+    cmd = remote.render_policy()
+    assert "--enable_cameras" in cmd
+    assert "--viz none" not in cmd
+    assert "render_policy.py" in cmd
+
+
+def test_rendering_defaults_to_the_ppo_checkpoint_directory():
+    assert f"{remote.RUNS_DIR}/ppo" in remote.render_policy()
+    assert "--checkpoint /tmp/p.pt" in remote.render_policy(checkpoint="/tmp/p.pt")
+
+
+def test_kill_knows_about_the_training_and_rendering_scripts():
+    cmd = remote.kill_sim()
+    for script in ("train_ppo.py", "train_diffusion.py", "eval_diffusion.py", "render_policy.py"):
+        assert script in cmd

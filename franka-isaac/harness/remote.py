@@ -265,6 +265,7 @@ SIM_SCRIPTS = (
     "train_diffusion.py",
     "train_ppo.py",
     "eval_diffusion.py",
+    "render_policy.py",
     "record_demos.py",
     "replay_demos.py",
     "gamepad_probe.py",
@@ -358,6 +359,30 @@ def train_ppo(iterations: int = 500, num_envs: int = 1024, pick_only: bool = Fal
         "scripts/train_ppo.py",
         task=LIFT_TASK,
         num_envs=None,  # the script has its own --num_envs
+        extra=tuple(extra),
+        launcher=f"{ISAACLAB}/isaaclab.sh -p",
+    )
+
+
+def render_policy(checkpoint_dir: str | None = None, checkpoint: str | None = None) -> str:
+    """Record video of saved policies acting.
+
+    Rendering happens here rather than during training: Isaac Lab's video
+    recording needs cameras enabled, which would tax every step of an
+    hours-long run to produce a two-minute clip. Numbered checkpoints plus this
+    script give the same film for a few minutes of GPU.
+    """
+    extra = [f"--out {RUNS_DIR}/videos", "--enable_cameras"]
+    if checkpoint:
+        extra.append(f"--checkpoint {checkpoint}")
+    else:
+        extra.append(f"--checkpoint-dir {checkpoint_dir or f'{RUNS_DIR}/ppo'}")
+
+    return isaaclab(
+        "scripts/render_policy.py",
+        task=LIFT_TASK,
+        num_envs=None,  # the script has its own --num_envs
+        headless=False,  # rendering; --viz none would defeat the purpose
         extra=tuple(extra),
         launcher=f"{ISAACLAB}/isaaclab.sh -p",
     )

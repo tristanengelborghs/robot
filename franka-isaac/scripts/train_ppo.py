@@ -42,6 +42,7 @@ parser.add_argument("--success_height", type=float, default=0.10)
 parser.add_argument("--lr", type=float, default=3e-4)
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--log_every", type=int, default=10)
+parser.add_argument("--checkpoint_every", type=int, default=50, help="Keep a numbered checkpoint this often.")
 AppLauncher.add_app_launcher_args(parser)
 args_cli = parser.parse_args()
 
@@ -180,6 +181,15 @@ def main() -> None:
             )
             torch.save({"config": cfg.__dict__, "state_dict": policy.state_dict()}, out_dir / "policy.pt")
             (out_dir / "history.json").write_text(json.dumps(history, indent=2))
+
+        # Numbered checkpoints are kept rather than overwritten, so the run can
+        # be replayed afterwards: render each one in turn and you have a video
+        # of the policy learning, without having paid to render during training.
+        if iteration % args_cli.checkpoint_every == 0:
+            torch.save(
+                {"config": cfg.__dict__, "state_dict": policy.state_dict(), "iteration": iteration},
+                out_dir / f"policy_{iteration:06d}.pt",
+            )
 
     print(f"\nfinished {args_cli.iterations} iterations in {time.time() - started:.0f}s")
     print(f"checkpoint {out_dir / 'policy.pt'}")
