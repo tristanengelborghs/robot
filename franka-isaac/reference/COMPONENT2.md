@@ -98,29 +98,33 @@ upstream source.
 
 ## Recording by hand
 
-note.md's Component 2 asks for keyboard teleoperation, and the plumbing for it
-is built and verified as far as the network allows: `make teleop` runs Isaac
-Lab's own `record_demos.py` with `--teleop_device keyboard`, streaming rather
-than headless because a keyboard device attaches to an application window.
-Launched, it starts the app, brings up Kit's WebRTC extensions, and serves the
-viewer page — which loads correctly over an ssh tunnel.
+note.md's Component 2 asks for keyboard teleoperation, and the plumbing is
+built: `make teleop` from the laptop, or `scripts/teleop_in_container.sh` from
+the browser VS Code terminal on the box, both running Isaac Lab's own
+`record_demos.py` with `--teleop_device keyboard`. It streams rather than runs
+headless, because a keyboard device attaches to an application window.
 
-It stops at one hard boundary. The viewer signals over TCP 443 and takes its
-video over **WebRTC on UDP**; the running app opens ephemeral UDP ports for it.
-The instance's security group allows port 22 and nothing else, and `ssh -L`
-forwards TCP only, so a tunnel can serve the page and can never serve the
-stream. The viewer sits on "WAITING FOR STREAM...", which is the correct
-behaviour for a media path that has nowhere to go.
+The viewer is the instance's Brev URL with `/viewer` appended —
+`https://isaac-fzq49bb7n.brevlab.com/viewer`, from the console's **Access** tab.
+That goes through Brev's proxy rather than the instance's public IP, so it needs
+no change to the security group.
 
-Crossing it means opening TCP 443 and the WebRTC media UDP range on the
-instance, then browsing directly to `https://<public-ip>/viewer/` — what the
-launchable's viewer is hard-wired for: its `main.tsx` sets
-`signalingPort: 443` and a `mediaServer` fixed to the box's public IP. That is a
-security-group change and a decision about exposing a GPU box to the internet,
-so it is not automated here.
+One wrong turn is worth recording, because it cost an afternoon. Reached over an
+`ssh -L` tunnel instead, the viewer page loads and then sits forever on "WAITING
+FOR STREAM...", and the reason is real: the video is WebRTC over UDP and ssh
+forwards TCP only. From that, plus a port scan of the instance's public DNS
+showing only 22 open, it looked as though the stream could not be reached at all
+without opening ports. It could: the port scan was aimed at the wrong door. The
+Brev console proxies the instance, and the launchable already exposes both port
+80 and the WebRTC media port through it.
 
-This is why the scripted controller was worth building first rather than second.
-It records unattended, over ssh, with no ports open at all.
+The general lesson is narrower than "check the console": a negative result about
+*one* route is not a negative result about *the* route. `ssh -L` and a port scan
+between them cover exactly the paths I had thought of.
+
+The scripted controller is still the one that matters for recording in bulk. It
+runs unattended over ssh, needs no viewer at all, and does not care whether
+anyone is watching.
 
 ## What this leaves for Component 5
 

@@ -132,23 +132,53 @@ make dataset               # pulls the HDF5 here, prints shapes, plots the end-e
 make stop
 ```
 
-A scripted controller records unattended, and it is Component 5's deliverable
-arriving early: if a controller with ground-truth poses cannot do the task, a
-policy is not going to either.
+A scripted controller records unattended — no viewer, no person, no browser —
+and it is Component 5's deliverable arriving early: if a controller with
+ground-truth poses cannot do the task, a policy is not going to either.
 
 ### Recording by hand
 
-The same recorder, driven by a person instead:
+The same recorder, driven by a person instead. Two ways in, because there are
+two places you might be sitting.
+
+**From the laptop:**
 
 ```bash
-make tunnel                # in its own shell; forwards the viewer
-make teleop                # then open http://localhost:8090/viewer/
+make teleop                # syncs, patches, launches; prints the key bindings
 ```
 
-`make teleop` runs Isaac Lab's own `record_demos.py` with `--teleop_device
-keyboard`. A keyboard device attaches to an application window, so unlike every
-other run in this project it cannot be headless: it streams instead, with
-`--livestream 2`, and the window it attaches to is served to a browser.
+**From the browser VS Code terminal on the box:**
+
+```bash
+/workspace/robot/franka-isaac/scripts/teleop_in_container.sh
+```
+
+`make teleop` is the *outside* half of a pair: it pushes this project to the
+box, patches Isaac Lab in the container, then reaches in over `ssh -> docker
+exec`. Run from a terminal already on the box it tries to ssh to itself and
+fails on its first line. `teleop_in_container.sh` is the inside half — same
+patches, same flags, no ssh layer, and a test keeps the two in step.
+
+Either way, this run is the one exception to everything else in this project:
+it cannot be headless. A keyboard device attaches to an application window, so
+it streams with `--livestream 2`, and that window is served to a browser.
+
+**Watching it.** Open the instance's Brev URL with `/viewer` on the end:
+
+```
+https://isaac-fzq49bb7n.brevlab.com/viewer
+```
+
+The current URL is in the Brev console on the instance's **Access** tab, under
+"Share a Service" (port 80). It goes through Brev's own proxy rather than the
+instance's public IP, which is why it works with the security group exactly as
+the launchable ships it. Isaac Sim needs a few minutes to start before the
+viewer shows anything.
+
+`make tunnel` forwards the same page to `http://localhost:8090/viewer/` over
+ssh, but that is only good for checking the app is alive: ssh carries TCP, the
+video is WebRTC over UDP, so the page loads and then sits on "WAITING FOR
+STREAM...". Use the Brev URL to actually drive.
 
 Isaac Lab's `Se3Keyboard` bindings, with the viewer focused:
 
@@ -163,23 +193,8 @@ Isaac Lab's `Se3Keyboard` bindings, with the viewer focused:
 An episode is written out on its own once the cubes are stacked, and only
 successful episodes are exported — the same rule the scripted path follows.
 Demos land in `/workspace/datasets/stack_teleop.hdf5`, separate from the
-scripted ones, and `make dataset` pulls both.
-
-**The viewer needs ports this instance does not currently open.** Everything up
-to the network is verified working: the run starts, Kit's WebRTC extensions come
-up, and the viewer page loads over an ssh tunnel. But the page then signals over
-TCP 443 and takes its *video over WebRTC on UDP* (the running app opens ephemeral
-UDP ports), while the instance's security group allows port 22 alone. `ssh -L`
-forwards TCP only, so a tunnel can serve the page and can never serve the
-stream — the viewer sits on "WAITING FOR STREAM...".
-
-To actually drive the arm, the instance needs TCP 443 and the WebRTC media UDP
-range reachable, and then the viewer is browsed directly at
-`https://<instance-public-ip>/viewer/` — which is what the launchable's viewer is
-hard-wired for (`main.tsx` sets `signalingPort: 443` and a `mediaServer` fixed to
-the box's public IP). That is a security-group change on the Brev account, and a
-decision about exposing a GPU box to the internet, so it is deliberately not
-automated here.
+scripted ones; `make dataset DATASET=datasets/stack_teleop.hdf5` pulls and
+inspects them.
 
 ## Status
 

@@ -1,6 +1,8 @@
 """The nesting is ssh -> docker exec -> isaaclab.sh, and each layer quotes the
 next. These tests pin the two invariants that cost real GPU time to discover."""
 
+from pathlib import Path
+
 import pytest
 
 from harness import remote
@@ -169,3 +171,25 @@ def test_tunnel_opts_out_of_ssh_connection_multiplexing():
 def test_viewer_url_matches_the_tunnel():
     assert str(remote.LOCAL_VIEWER_PORT) in remote.viewer_url()
     assert remote.viewer_url().endswith("/viewer/")
+
+
+def test_the_container_side_script_uses_the_same_flags():
+    """The in-container script and harness.remote must not drift apart.
+
+    scripts/teleop_in_container.sh exists because `make teleop` cannot run on
+    the box -- it is the outside half of the pair. That means the teleop flags
+    are written down twice, so this checks the second copy still matches the
+    first. A silent divergence would record a subtly different dataset
+    depending on which terminal it was started from.
+    """
+    script = (Path(__file__).resolve().parent.parent / "scripts/teleop_in_container.sh").read_text()
+    built = remote.record_teleop()
+
+    for flag in ("--livestream 2", "--teleop_device keyboard", remote.TELEOP_TASK):
+        assert flag in script, f"{flag} is in the built command but not in the script"
+        assert flag in built
+
+    # Both must reach the same script, and neither may be headless.
+    assert "scripts/tools/record_demos.py" in script
+    assert "--headless" not in script
+    assert remote.TELEOP_DATASET_FILE in script
