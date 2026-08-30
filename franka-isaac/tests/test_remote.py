@@ -185,11 +185,37 @@ def test_the_container_side_script_uses_the_same_flags():
     script = (Path(__file__).resolve().parent.parent / "scripts/teleop_in_container.sh").read_text()
     built = remote.record_teleop()
 
-    for flag in ("--livestream 2", "--teleop_device keyboard", remote.TELEOP_TASK):
+    for flag in ("--livestream 2", "--viz kit", remote.TELEOP_TASK):
         assert flag in script, f"{flag} is in the built command but not in the script"
         assert flag in built
+
+    # The script takes its device as a parameter, so only the flag is literal.
+    assert "--teleop_device" in script
+    assert "--teleop_device" in built
 
     # Both must reach the same script, and neither may be headless.
     assert "scripts/tools/record_demos.py" in script
     assert "--headless" not in script
     assert remote.TELEOP_DATASET_FILE in script
+
+
+def test_the_two_sides_accept_the_same_teleop_devices():
+    """The container script and the laptop CLI must offer the same devices.
+
+    A device accepted by one and rejected by the other is a confusing failure:
+    the same request works or does not depending on which terminal it is typed
+    into.
+    """
+    script = (Path(__file__).resolve().parent.parent / "scripts/teleop_in_container.sh").read_text()
+    cli = (Path(__file__).resolve().parent.parent / "scripts/run_remote.py").read_text()
+
+    for device in ("keyboard", "gamepad", "spacemouse"):
+        assert device in script, f"{device} is offered by the CLI but not by the container script"
+        assert device in cli, f"{device} is offered by the container script but not by the CLI"
+
+
+def test_teleop_can_ask_for_a_gamepad():
+    # NVIDIA's WebRTC client forwards gamepad input to the streamed app, with a
+    # DualSense profile among others, so a controller on the laptop reaches the
+    # simulator on the box.
+    assert "--teleop_device gamepad" in remote.record_teleop(device="gamepad")

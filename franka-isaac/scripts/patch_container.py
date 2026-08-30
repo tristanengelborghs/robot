@@ -1,4 +1,4 @@
-"""Fix three things in the box's Isaac Lab that stop a headless run working.
+"""Adjust the box's Isaac Lab: three fixes, and one device it declines to offer.
 
 Runs *inside* the container, as a plain script -- it imports nothing but the
 standard library, because the container has no simulator-free Python and this
@@ -9,9 +9,11 @@ Nothing here is a lasting edit to somebody else's code. It is a rented machine,
 every patch is reapplied from this file, and this file is in our repository
 where it can be read and argued with.
 
-All three problems are in Isaac Lab 3.0.0 itself rather than in anything we
+The first three are bugs in Isaac Lab 3.0.0 itself rather than in anything we
 wrote, and none can be worked around from an environment config, because Isaac
-Lab's own scripts hit them too:
+Lab's own scripts hit them too. The fourth is an addition, and is here for the
+same reason: it is a three-line change to a function of theirs, and the
+alternative is duplicating the seven hundred lines around it.
 
 1. **The Franka asset moved.** ``isaaclab_assets/robots/franka.py`` asks for
    ``.../Robots/FrankaEmika/panda_instanceable.usd``; NVIDIA reorganised the 6.0
@@ -35,6 +37,13 @@ Lab's own scripts hit them too:
    "State shape of root_pose for asset robot don't match" at the first
    comparison -- for Isaac Lab's own recorded datasets as much as for ours.
 
+4. **Gamepad is not a selectable device.** ``record_demos.py`` recognises two
+   built-in device names, keyboard and spacemouse; anything else must come from
+   ``env_cfg.teleop_devices``, which the stock stacking task does not define. So
+   ``--teleop_device gamepad`` exits with an error even though Isaac Lab ships
+   ``Se3Gamepad``, and NVIDIA's WebRTC client forwards gamepad input -- with a
+   DualSense profile -- to the streamed app.
+
 Every patch is idempotent: a second run finds it already applied. Each is also
 pinned by a test in tests/test_patches.py that checks its search text still
 matches the copy of the upstream source vendored under reference/.
@@ -50,6 +59,7 @@ ISAACLAB = Path("/workspace/isaaclab")
 
 FRANKA_CFG = ISAACLAB / "source/isaaclab_assets/isaaclab_assets/robots/franka.py"
 REPLAY = ISAACLAB / "scripts/tools/replay_demos.py"
+RECORD = ISAACLAB / "scripts/tools/record_demos.py"
 
 
 @dataclass(frozen=True)
@@ -154,7 +164,51 @@ VALIDATE_PATCH = Patch(
 )
 
 
-PATCHES = (FRANKA_USD_PATCH, KEYBOARD_PATCH, VALIDATE_PATCH)
+# ---------------------------------------------------------------------------
+# 4. Gamepad as a built-in teleoperation device.
+# ---------------------------------------------------------------------------
+#
+# This one is an addition rather than a bug fix, and it is here for the same
+# reason as the others: it cannot be done from our side. record_demos.py knows
+# two built-in device names, keyboard and spacemouse. Anything else has to come
+# from `env_cfg.teleop_devices`, which the stock stacking task does not define,
+# so `--teleop_device gamepad` exits with an error. Isaac Lab ships a perfectly
+# good Se3Gamepad; only the three-line factory stands between it and being
+# usable, and duplicating a 700-line script to change one function would be a
+# worse trade.
+#
+# Sensitivities are read from the environment so they can be tuned between runs
+# without re-patching -- analogue sticks are proportional, so the right value is
+# a matter of feel rather than something to be argued from first principles.
+# Isaac Lab's own defaults (1.0 and 1.6) are noticeably fast for stacking.
+
+GAMEPAD_OLD = """    elif name == "spacemouse":
+        return Se3SpaceMouse(Se3SpaceMouseCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
+    return None"""
+
+GAMEPAD_NEW = """    elif name == "spacemouse":
+        return Se3SpaceMouse(Se3SpaceMouseCfg(pos_sensitivity=0.2, rot_sensitivity=0.5))
+    elif name == "gamepad":  # patched: gamepad as a built-in device
+        from isaaclab.devices import Se3Gamepad, Se3GamepadCfg
+
+        return Se3Gamepad(
+            Se3GamepadCfg(
+                pos_sensitivity=float(os.environ.get("GAMEPAD_POS_SENSITIVITY", "0.4")),
+                rot_sensitivity=float(os.environ.get("GAMEPAD_ROT_SENSITIVITY", "0.8")),
+            )
+        )
+    return None"""
+
+GAMEPAD_PATCH = Patch(
+    name="gamepad as a built-in device",
+    path=RECORD,
+    old=GAMEPAD_OLD,
+    new=GAMEPAD_NEW,
+    marker="patched: gamepad as a built-in device",
+)
+
+
+PATCHES = (FRANKA_USD_PATCH, KEYBOARD_PATCH, VALIDATE_PATCH, GAMEPAD_PATCH)
 
 
 def apply(patch: Patch) -> bool:

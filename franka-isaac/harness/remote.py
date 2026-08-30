@@ -103,7 +103,10 @@ def isaaclab(
         # --viz none is not optional here; see module docstring.
         args += ["--headless", "--viz none"]
     if livestream:
-        args.append("--livestream 2")
+        # --viz kit is not optional here; see module docstring. Livestreaming
+        # implies headless, and headless with no visualizer renders nothing, so
+        # the stream comes up black.
+        args += ["--livestream 2", "--viz kit"]
     args += list(extra)
 
     return f"{launcher} {script} " + " ".join(args)

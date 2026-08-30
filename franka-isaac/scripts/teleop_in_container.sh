@@ -9,8 +9,13 @@
 #
 # This is the inside half. Run it from the VS Code terminal on the box:
 #
-#     /workspace/robot/franka-isaac/scripts/teleop_in_container.sh
-#     /workspace/robot/franka-isaac/scripts/teleop_in_container.sh 3
+#     teleop_in_container.sh                     # 5 demos, keyboard
+#     teleop_in_container.sh 3                   # 3 demos, keyboard
+#     teleop_in_container.sh 5 gamepad           # 5 demos, gamepad
+#
+# Gamepad stick sensitivity is tunable per run without touching any code:
+#
+#     GAMEPAD_POS_SENSITIVITY=0.6 teleop_in_container.sh 5 gamepad
 #
 # It applies the same container patches `make sync` would have applied, then
 # launches Isaac Lab's own record_demos.py with the same flags harness.remote
@@ -18,6 +23,10 @@
 #
 # It cannot be headless: a keyboard device attaches to an application window, so
 # the run streams (--livestream 2) and that window is served to a browser.
+#
+# --viz kit matters as much as --livestream. Livestreaming implies headless, and
+# a headless run with no visualizer renders no frames, so the viewer connects and
+# shows a black picture that looks exactly like a broken network path.
 
 set -euo pipefail
 
@@ -26,7 +35,16 @@ PROJECT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 TASK=Isaac-Stack-Cube-Franka-IK-Rel-v0
 NUM_DEMOS="${1:-5}"
-DATASET_FILE="${2:-/workspace/datasets/stack_teleop.hdf5}"
+DEVICE="${2:-keyboard}"
+DATASET_FILE="${3:-/workspace/datasets/stack_teleop.hdf5}"
+
+case "$DEVICE" in
+    keyboard | gamepad | spacemouse) ;;
+    *)
+        echo "unknown teleop device: $DEVICE (expected keyboard, gamepad or spacemouse)" >&2
+        exit 2
+        ;;
+esac
 
 # The container ships no system Python; /isaac-sim/python.sh is the only
 # interpreter on it. Prefer a real python3 if one ever appears.
@@ -40,6 +58,7 @@ mkdir -p "$(dirname "$DATASET_FILE")"
 cat <<INSTRUCTIONS
 
 Teleoperated recording -- $NUM_DEMOS demonstrations to $DATASET_FILE
+Device: $DEVICE
 
   Watch it at the instance's Brev URL with /viewer on the end, for example
   https://isaac-fzq49bb7n.brevlab.com/viewer -- the console's Access tab has
@@ -66,6 +85,7 @@ cd "$ISAACLAB"
 exec ./isaaclab.sh -p "$ISAACLAB/scripts/tools/record_demos.py" \
     --task "$TASK" \
     --livestream 2 \
-    --teleop_device keyboard \
+    --viz kit \
+    --teleop_device "$DEVICE" \
     --num_demos "$NUM_DEMOS" \
     --dataset_file "$DATASET_FILE"

@@ -126,25 +126,45 @@ def run_tunnel(_args: argparse.Namespace) -> int:
         return 0
 
 
-def print_teleop_instructions(args: argparse.Namespace) -> None:
-    """Everything needed to actually drive the arm, printed before it starts."""
-    print(
-        f"""
-Teleoperated recording -- {args.num_demos} demonstrations to {args.dataset_file}
-
-  1. In another shell:  make tunnel
-  2. In a browser:      {remote.viewer_url()}
-  3. Drive the arm with the keys below, with the viewer focused.
-
-  Keyboard (Isaac Lab's Se3Keyboard):
+KEYBOARD_BINDINGS = """  Keyboard (Isaac Lab's Se3Keyboard):
 
       W / S     end-effector +x / -x        Z / X   roll  + / -
       A / D     end-effector +y / -y        T / G   pitch + / -
       Q / E     end-effector +z / -z        C / V   yaw   + / -
 
       K         toggle the gripper open and closed
-      L         reset the teleoperation device to its neutral pose
-      R         abandon this episode and reset the scene
+      L         recentre the teleoperation device
+      R         abandon this episode and reset the scene"""
+
+GAMEPAD_BINDINGS = """  Gamepad (Isaac Lab's Se3Gamepad; a DualSense works, the browser
+  forwards it):
+
+      Left stick            end-effector x / y
+      Right stick up-down   end-effector z
+      Right stick left-right    yaw
+      X button              toggle the gripper open and closed
+
+  The browser only sees a controller once you press a button on it with the
+  page focused. Sticks are proportional, so sensitivity is a matter of feel:
+  GAMEPAD_POS_SENSITIVITY and GAMEPAD_ROT_SENSITIVITY tune it between runs."""
+
+BINDINGS = {"keyboard": KEYBOARD_BINDINGS, "gamepad": GAMEPAD_BINDINGS}
+
+
+def print_teleop_instructions(args: argparse.Namespace) -> None:
+    """Everything needed to actually drive the arm, printed before it starts."""
+    bindings = BINDINGS.get(args.device, f"  Device: {args.device}")
+    print(
+        f"""
+Teleoperated recording -- {args.num_demos} demonstrations to {args.dataset_file}
+
+  1. Open the instance's Brev URL with /viewer on the end, from the console's
+     Access tab. `make tunnel` serves the same page over ssh, but the video is
+     WebRTC over UDP and will not survive the tunnel.
+  2. Click the viewport so it has input focus.
+  3. Drive the arm.
+
+{bindings}
 
   An episode ends and is written out on its own once the cubes are stacked;
   only successful episodes are exported. Stacking order is cube_1 at the
@@ -169,7 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
     teleop = subcommands.add_parser("teleop", help="record demonstrations by hand over the browser viewer")
     teleop.add_argument("--num-demos", type=int, default=5)
     teleop.add_argument("--dataset-file", default=remote.TELEOP_DATASET_FILE)
-    teleop.add_argument("--device", default="keyboard", choices=["keyboard", "spacemouse"])
+    teleop.add_argument("--device", default="keyboard", choices=["keyboard", "gamepad", "spacemouse"])
     teleop.set_defaults(handler=run_teleop)
 
     replay = subcommands.add_parser("replay", help="replay a dataset and validate it against the recorded states")

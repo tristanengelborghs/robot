@@ -196,6 +196,39 @@ Demos land in `/workspace/datasets/stack_teleop.hdf5`, separate from the
 scripted ones; `make dataset DATASET=datasets/stack_teleop.hdf5` pulls and
 inspects them.
 
+**Or a gamepad**, including a PS5 DualSense:
+
+```bash
+make teleop TELEOP_DEVICE=gamepad
+/workspace/robot/franka-isaac/scripts/teleop_in_container.sh 5 gamepad
+```
+
+| | |
+|---|---|
+| Left stick | end-effector x / y |
+| Right stick up/down | end-effector z |
+| Right stick left/right | yaw |
+| `X` button | toggle the gripper |
+
+Two axes at once and proportional rather than on/off, which suits this task
+better than tapping `W`. It works because NVIDIA's WebRTC client forwards
+gamepad input to the streamed app — it carries a DualSense profile explicitly —
+so a controller paired to the laptop reaches Isaac Sim on the box.
+
+The browser only sees a controller **after you press a button on it** with the
+page focused; until then it is silently absent, which reads exactly like the
+feature not working. Stick sensitivity is a matter of feel, so it is tunable per
+run without touching code:
+
+```bash
+GAMEPAD_POS_SENSITIVITY=0.6 GAMEPAD_ROT_SENSITIVITY=1.0 \
+    scripts/teleop_in_container.sh 5 gamepad
+```
+
+Isaac Lab ships `Se3Gamepad` but `record_demos.py` offers only keyboard and
+spacemouse as built-in device names; the fourth container patch adds gamepad to
+that factory.
+
 ## Status
 
 Components 0, 1 and 2 are done.
