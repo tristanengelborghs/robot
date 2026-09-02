@@ -1,0 +1,25 @@
+# Same as vla_goal.yaml with the backbone entirely frozen: only the action
+# queries, proprio projections and head train. The cheap third row — how much of
+# the VLA's score is the pretrained representation, and how much the fine-tune.
+data:
+  suites: [libero_goal]
+  image_size: 128
+
+model:
+  name: vla
+  backbone: HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+  finetune: frozen
+  hidden_dim: 512
+  image_res: 512
+  freeze_vision: true
+  backbone_dtype: auto
+
+train:
+  steps: 30000
+  batch_size: 32
+  lr: 3.0e-4
+  warmup_steps: 1000
+  ema_decay: 0.999
+  amp: true
+  num_workers: 3                # the box has 4 CPUs
+  ckpt_every: 5000

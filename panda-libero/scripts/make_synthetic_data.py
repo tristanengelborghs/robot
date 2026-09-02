@@ -32,6 +32,8 @@ def main() -> None:
     ap.add_argument("--length", type=int, default=40)
     ap.add_argument("--image-size", type=int, default=64)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--cache", default="cache/lang_synthetic.npz",
+                    help="where the matching language cache goes; the smoke config reads the default")
     args = ap.parse_args()
 
     rng = np.random.default_rng(args.seed)
@@ -89,7 +91,7 @@ def main() -> None:
         print(f"wrote {path}")
 
     # Matching language cache so the smoke config runs without transformers.
-    cache = Path("cache/lang_synthetic.npz")
+    cache = Path(args.cache)
     cache.parent.mkdir(parents=True, exist_ok=True)
     keys = INSTRUCTIONS[: args.tasks]
     vecs = rng.normal(0, 1, (len(keys), 512)).astype(np.float32)

@@ -51,20 +51,48 @@ def _set_dotted(cfg: Dict[str, Any], dotted: str, value: Any) -> None:
     node[keys[-1]] = value
 
 
+def _merge_model_block(cfg: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    """Merge, except that a `model:` block naming a different architecture replaces
+    the old block outright.
+
+    Everything under `model:` other than `name` goes straight to that model's
+    constructor, so the keys belong to one architecture. Deep-merging the default
+    ResNet's `num_keypoints` into a config that switches to `vla` would hand the
+    VLA a kwarg it has never heard of.
+    """
+    new_name = override.get("model", {}).get("name") if isinstance(override.get("model"), dict) else None
+    if new_name is not None and new_name != cfg.get("model", {}).get("name"):
+        cfg = dict(cfg)
+        cfg["model"] = {}
+    return _deep_merge(cfg, override)
+
+
 def load_config(path: str | None = None, overrides: List[str] | None = None) -> Dict[str, Any]:
-    """Load defaults, merge an optional config file, then apply `key.sub=value` overrides."""
+    """Load defaults, merge an optional config file, then apply `key.sub=value` overrides.
+
+    Switching architectures — `model.name` in the file or on the command line —
+    starts the `model:` block fresh; the other keys under it are then whatever
+    that file or those overrides say, in any order.
+    """
     with open(DEFAULTS_PATH) as f:
         cfg = yaml.safe_load(f) or {}
 
     if path:
         with open(path) as f:
-            cfg = _deep_merge(cfg, yaml.safe_load(f) or {})
+            cfg = _merge_model_block(cfg, yaml.safe_load(f) or {})
 
+    parsed = []
     for item in overrides or []:
         if "=" not in item:
             raise ValueError(f"override must look like key.sub=value, got '{item}'")
         dotted, raw = item.split("=", 1)
-        _set_dotted(cfg, dotted.strip(), _coerce(raw.strip()))
+        parsed.append((dotted.strip(), _coerce(raw.strip())))
+
+    # The architecture switch goes first so it cannot wipe out sibling overrides.
+    for dotted, value in sorted(parsed, key=lambda kv: kv[0] != "model.name"):
+        if dotted == "model.name" and value != cfg.get("model", {}).get("name"):
+            cfg["model"] = {}
+        _set_dotted(cfg, dotted, value)
 
     return cfg
 

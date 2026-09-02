@@ -91,7 +91,20 @@ def load_policy(ckpt_path: str, device: torch.device, use_ema: bool = True):
         **ckpt["model_kwargs"],
     )
     state = ckpt["ema_state_dict"] if (use_ema and ckpt.get("ema_state_dict")) else ckpt["state_dict"]
-    model.load_state_dict(state)
+    result = model.load_state_dict(state, strict=model.strict_load)
+    if not model.strict_load:
+        # The checkpoint holds only what training changed; the rest was rebuilt
+        # from the backbone's source just now. Anything else missing is a real
+        # mismatch that strict=False would otherwise hide.
+        frozen = {n for n, p in model.named_parameters() if not p.requires_grad}
+        frozen |= {n for n, _ in model.named_buffers()}
+        stray = [k for k in result.missing_keys if k not in frozen]
+        if stray or result.unexpected_keys:
+            raise RuntimeError(
+                f"checkpoint does not match the rebuilt {ckpt['model_name']}: "
+                f"{len(stray)} trainable key(s) missing, e.g. {stray[:3]}; "
+                f"{len(result.unexpected_keys)} unexpected, e.g. {result.unexpected_keys[:3]}"
+            )
     model.to(device).eval()
     normalizer = ActionNormalizer.from_state_dict(ckpt["normalizer"])
     return model, normalizer, obs_spec, ckpt
@@ -193,9 +206,11 @@ def evaluate(args) -> None:
             while steps < max_steps:
                 images, proprio = prepare_obs(raw, obs_spec.cameras, cfg["data"]["image_size"],
                                               cfg["data"]["flip_images"], device)
-                batch = ablate.apply({"images": images, "proprio": proprio, "lang": lang}, ablation)
+                batch = ablate.apply(
+                    {"images": images, "proprio": proprio, "lang": lang, "text": [instruction]}, ablation
+                )
                 with torch.no_grad():
-                    chunk = model.predict(batch["images"], batch["proprio"], batch["lang"])
+                    chunk = model.predict(batch["images"], batch["proprio"], batch["lang"], text=batch["text"])
                 actions = normalizer.denormalize(chunk[0].float().cpu().numpy())
 
                 for a in actions[: args.exec_horizon]:

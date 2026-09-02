@@ -1,0 +1,17 @@
+# The from-scratch column on LIBERO-Goal: ten instructions over one scene, so the
+# instruction is the only thing that tells the tasks apart. This is the baseline
+# the VLA is compared against — same demos, same paired initial states, same
+# ablations. ~27M params, no pretraining.
+data:
+  suites: [libero_goal]
+  image_size: 128
+
+model:
+  name: resnet_film_bc
+  hidden_dim: 256
+  num_layers: 4
+
+train:
+  steps: 60000
+  batch_size: 64
+  num_workers: 3                # the box has 4 CPUs

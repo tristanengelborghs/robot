@@ -71,13 +71,21 @@ then trains for 600 steps. The loss must fall (≈0.53 → ≈0.16). If it stays
 gradient is not reaching the vision tower — which is exactly what you want a smoke
 test to tell you before you spend a day of GPU time.
 
+`make vla-smoke` does the same for the VLA, on a random unit-test-sized stand-in
+for its backbone (no download): loss ≈0.55 → ≈0.39, and `gripper_l1` from ≈0.95
+to under 0.1, which is the channel that proves the action queries are reading the
+sequence rather than the proprio side channel.
+
 ## Real path
 
 ```bash
-make data                                          # demos + frozen CLIP instruction cache
-python -m robobench.train --config configs/resnet_film_bc.yaml
+make data SUITES=libero_goal                       # demos + frozen CLIP instruction cache
+python -m robobench.train --config configs/resnet_film_bc_goal.yaml
 python -m robobench.eval  --ckpt runs/<run>/ckpt_last.pt --episodes 50
 ```
+
+The same three steps run on the GPU box as `make box-data`, `make box-train`,
+`make box-eval` — see [The GPU box](#the-gpu-box).
 
 ## Demos from human video
 
@@ -170,6 +178,93 @@ Check the per-episode summary the recorder prints before training on anything. A
 `clipped` fraction means the demonstration outran the controller and the actions no
 longer describe the motion in the images — re-record it slower.
 
+## The VLA, on LIBERO-Goal
+
+`configs/vla_goal.yaml` is the pretrained column of the table: SmolVLM2-500M
+(SigLIP → pixel-shuffle connector → SmolLM2-360M) reads both camera frames and the
+instruction *text*, LoRA adapters train on the language model's attention, and a
+small head regresses the action chunk from the hidden states at eight learned
+action-query positions appended to the sequence. That is OpenVLA-OFT's recipe —
+parallel decoding, continuous actions, L1 — and it lands on the harness's masked-L1
+objective unchanged. `src/robobench/models/vla.py` is the whole model; the module
+docstring is the design note.
+
+Why Goal, and not the easier suites: Goal is ten instructions over *one* scene.
+Object and Spatial can be solved by looking, which is how a model with no language
+encoder matches state of the art on them. On Goal the instruction is the only thing
+that separates the tasks, so `ablation=no_lang` is a real test there and the
+comparison below means something:
+
+| run | what it shows |
+|---|---|
+| `resnet_film_bc_goal.yaml` | the from-scratch column: 27M params, no pretraining |
+| `resnet_film_bc_goal.yaml ablation=no_lang` | how much of that is language at all — expect a collapse |
+| `vla_goal.yaml` | the pretrained column |
+| `vla_goal.yaml ablation=no_lang` | whether the VLA's margin is language, or just a better vision tower |
+| `vla_goal_frozen.yaml` | how much is the representation vs the fine-tune |
+
+Then `make stats A=... B=...` on each pair, paired on identical initial states.
+Report params, *trainable* params (`run.json` carries both) and GPU-hours next to
+the success rate; the compute ratio is half the point.
+
+### Results, seed 0
+
+One L4 (24 GB), LIBERO at commit `8f1084e3`, 50 episodes per task on identical
+initial states, 500 per row. The `no_lang` rows destroy the instruction (zeroed
+CLIP vector *and* blanked string) either only at rollout or in training too.
+
+| model | language | params (trainable) | train | success | 95% CI |
+|---|---|---|---|---|---|
+| ResNet-FiLM-BC | train + eval | 27M (27M) | 2.5 h | **85.0%** | 81.8–88.0 |
+| ResNet-FiLM-BC | zeroed at eval | 27M (27M) | — | 5.2% | 3.4–7.2 |
+| ResNet-FiLM-BC | never | 27M (27M) | 2.7 h | 7.4% | 5.2–9.8 |
+| VLA (SmolVLM2-500M + LoRA) | train + eval | 465M (4.8M) | 11.4 h | **91.0%** | 88.4–93.4 |
+| VLA (SmolVLM2-500M + LoRA) | blanked at eval | 465M (4.8M) | — | 0.4% | 0.0–1.0 |
+
+Paired tests (sign-flip permutation on the 500 shared initial states):
+
+| comparison | delta | 95% CI | p |
+|---|---|---|---|
+| VLA vs baseline | **+6.0 pp** | +2.6 to +9.4 | 0.0014 |
+| baseline vs baseline, language zeroed at eval | −79.8 pp | −83.4 to −76.0 | < 1e-4 |
+| baseline vs baseline trained without language | −77.6 pp | −81.4 to −73.6 | < 1e-4 |
+| VLA vs VLA, language blanked at eval | −90.6 pp | −93.0 to −88.0 | < 1e-4 |
+
+Reading it: on Goal the instruction carries almost everything for both models —
+language-blind, the baseline sits at the 1-in-10 guess rate and the VLA below it.
+The VLA's six points come from the tasks the baseline finds hardest (push the
+plate 72% → 100%, cream cheese 68% → 78%); its one loss is the two-stage
+drawer-then-bowl task (72% → 62%). The from-scratch 27M model at 85% already
+clears the published from-scratch reference on Goal (Diffusion Policy, ~68%), so
+the pretrained column is buying six points for 4.6× the GPU-hours and 17× the
+inference-time parameters. Single seed; run ≥3 before quoting any of it.
+Not run yet: `vla_goal_frozen.yaml` (another ~11 h) and the VLA trained
+without language.
+
+Three things the VLA forced on the harness, all of which the baseline also gets:
+
+- **The instruction string travels with the batch** (`text`), alongside the cached
+  CLIP vector. Every model's `forward` takes `text=None`; the VLA reads it, the
+  others ignore it. `no_lang` blanks the string as well as zeroing the vector.
+- **LIBERO spells each instruction two ways**, and they differ on four Goal tasks:
+  the demo file says "Open the middle layer of the drawer", the evaluator says
+  "open the middle drawer of the cabinet". Training now reads the instruction the
+  way the evaluator does — from the file name — by default
+  (`data.instruction_source: filename`). The CLIP baseline was silently training
+  on one embedding and rolling out on another; a model that tokenises text would
+  not have been silent about it.
+- **Checkpoints and the EMA hold only what trained.** `trainable_state_dict()` is
+  everything for a from-scratch model and a few million parameters for the VLA;
+  the evaluator rebuilds the backbone from its source and loads the delta on top,
+  and refuses if any trainable key is missing.
+
+Before the first real run, `make box-check-vla` loads the actual backbone once
+and checks what the offline tests cannot: that the hand-built prompt is
+token-for-token what the HF processor produces, one timed forward/backward with
+finite gradients, peak memory, and the checkpoint round trip through the
+evaluator's loader. `image_res: 256` (16 tokens per camera instead of 64) is the
+first knob if a step is too slow.
+
 ## Adding your own architecture
 
 One file. Copy the template, implement `forward`, register it:
@@ -181,10 +276,11 @@ cp src/robobench/models/template.py src/robobench/models/my_arch.py
 ```python
 @register_model("my_arch")
 class MyArch(BasePolicy):
-    def forward(self, images, proprio, lang):
+    def forward(self, images, proprio, lang, text=None):
         # images  dict[camera -> uint8 (B, 3, H, W)]
         # proprio float32 (B, 9)     joint angles + gripper
         # lang    float32 (B, 512)   frozen CLIP instruction embedding
+        # text    list of B instruction strings, for models with their own text encoder
         return actions              # (B, chunk_size, 7) in normalized [-1, 1]
 ```
 
@@ -195,7 +291,9 @@ python -m robobench.train --config configs/resnet_film_bc.yaml model.name=my_arc
 ```
 
 Everything under `model:` in the YAML besides `name` is passed to your constructor,
-so new hyperparameters need no plumbing. The masked-L1 objective, action chunking,
+so new hyperparameters need no plumbing; switching `model.name` starts that block
+fresh, so the baseline's hyperparameters never reach a constructor that has not
+heard of them. The masked-L1 objective, action chunking,
 normalization, EMA, evaluation and statistics are shared, so a difference in the
 results table is a difference in your architecture. If your method needs another
 objective — diffusion, flow matching, a VAE term — override `loss()` and `predict()`.
@@ -227,6 +325,35 @@ python -m robobench.stats results/baseline/libero_object_episodes.jsonl \
 
 Run it across ≥3 training seeds before believing the number.
 
+## The GPU box
+
+Training the VLA and running 500 rollouts want a Linux GPU. The Makefile drives
+the same Brev instance `../franka-isaac` rents (`isaac-launchable-e4cbd5`, one L4,
+24 GB), but on the host rather than inside its Isaac container — this project needs
+a plain Python with CUDA, which the host has.
+
+```bash
+make start                       # boot it; polls until RUNNING
+make box-install                 # .venv + LIBERO on the box; prints the toolchain it found
+make box-check-vla               # the real backbone, once
+make box-data SUITES=libero_goal # demos + language cache, on the box
+make box-train CONFIG=configs/resnet_film_bc_goal.yaml RUN=bc-goal
+make box-train CONFIG=configs/vla_goal.yaml RUN=vla-goal
+make box-logs RUN=vla-goal
+make box-eval CKPT=runs/<run>/ckpt_last.pt RUN=vla-goal
+make box-eval CKPT=runs/<run>/ckpt_last.pt RUN=vla-goal ABLATION=no_lang
+make pull-results                # run.json, train logs, results/ — not checkpoints
+make stop                        # ALWAYS — it bills by the hour
+```
+
+Runs are detached with `setsid`, so they outlive the ssh session and a sleeping
+laptop (`nohup` does not: under Brev's ssh config it keeps the session, and
+`make`, open for the life of the run); `make box-ps` and `make box-kill` are the
+other half of that. `make sync`
+copies code only — `data/`, `runs/`, `results/`, `cache/` and `third_party/` are
+excluded on both sides, so nothing downloaded or trained on the box is ever
+deleted by a sync. `brev login` first if `make status` says you are logged out.
+
 ## Protocol notes
 
 - **Pin the LIBERO commit.** Task definitions and init states have changed over
@@ -245,9 +372,9 @@ Run it across ≥3 training seeds before believing the number.
 
 ```
 configs/          default.yaml is the full surface; others merge on top
-scripts/          data download, language cache, synthetic generator
+scripts/          data download, language cache, synthetic generator, box install, backbone check
 src/robobench/
-  models/         base.py (the contract) · resnet_film_bc.py (baseline) · template.py (start here)
+  models/         base.py (the contract) · resnet_film_bc.py (baseline) · vla.py (pretrained) · template.py (start here)
   data/           LIBERO HDF5 -> action chunks, action normalization
   hand/           human video -> demos: sources · detect · tracker · pose · retarget · record
   train.py        shared training loop

@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import math
 import time
 from pathlib import Path
@@ -37,21 +36,27 @@ from robobench.utils import (
 
 class EMA:
     """Exponential moving average of weights. Standard in visuomotor BC and worth a
-    few points; applied identically to every model so it never favours one."""
+    few points; applied identically to every model so it never favours one.
+
+    Tracks `model.trainable_state_dict()` — everything, for a model trained from
+    scratch; only the adapters and head for one on a frozen pretrained backbone,
+    which would otherwise be copied whole and averaged every step for nothing."""
 
     def __init__(self, model: torch.nn.Module, decay: float):
         self.decay = decay
-        self.shadow = copy.deepcopy(model).eval()
-        for p in self.shadow.parameters():
-            p.requires_grad_(False)
+        self.shadow = {k: v.detach().clone() for k, v in model.trainable_state_dict().items()}
 
     @torch.no_grad()
     def update(self, model: torch.nn.Module) -> None:
-        for s, p in zip(self.shadow.state_dict().values(), model.state_dict().values()):
+        for k, p in model.trainable_state_dict().items():
+            s = self.shadow[k]
             if s.dtype.is_floating_point:
                 s.mul_(self.decay).add_(p.detach(), alpha=1.0 - self.decay)
             else:
                 s.copy_(p)
+
+    def state_dict(self):
+        return self.shadow
 
 
 def build_lr_schedule(optimizer, warmup_steps: int, total_steps: int, min_ratio: float = 0.02):
@@ -124,6 +129,7 @@ def main() -> None:
         flip_images=cfg["data"]["flip_images"],
         augment=cfg["data"]["augment"],
         crop_ratio=cfg["data"]["crop_ratio"],
+        instruction_source=cfg["data"].get("instruction_source", "filename"),
     )
     meta = dataset.describe()
     print(f"[data] {meta['num_tasks']} tasks | {human(meta['num_samples'])} samples | {cfg['data']['suites']}")
@@ -156,11 +162,12 @@ def main() -> None:
     ).to(device)
 
     params = count_params(model)
-    print(f"[model] {cfg['model']['name']} | {human(params['total'])} params | device={device}")
+    print(f"[model] {cfg['model']['name']} | {human(params['total'])} params, "
+          f"{human(params['trainable'])} trainable | device={device}")
     print(f"[model] registered: {list_models()}")
 
     opt = torch.optim.AdamW(
-        model.parameters(),
+        [p for p in model.parameters() if p.requires_grad],
         lr=cfg["train"]["lr"],
         weight_decay=cfg["train"]["weight_decay"],
         betas=(0.9, 0.95),
@@ -251,8 +258,8 @@ def _save(path, model, ema, dataset, cfg, obs_spec, meta, step) -> None:
             "config": cfg,
             "model_name": cfg["model"]["name"],
             "model_kwargs": {k: v for k, v in cfg["model"].items() if k != "name"},
-            "state_dict": model.state_dict(),
-            "ema_state_dict": ema.shadow.state_dict() if ema else None,
+            "state_dict": model.trainable_state_dict(),
+            "ema_state_dict": ema.state_dict() if ema else None,
             "normalizer": dataset.normalizer.state_dict(),
             "obs_spec": obs_spec.__dict__,
             "action_dim": meta["action_dim"],

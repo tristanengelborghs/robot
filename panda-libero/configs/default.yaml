@@ -16,6 +16,8 @@ data:
   max_demos_per_task: null    # null = all (~50 per task in LIBERO)
   lang_cache: cache/lang_clip.npz
   lang_dim: 512
+  instruction_source: filename  # filename | hdf5 — LIBERO spells instructions two ways;
+                                # the evaluator uses the filename one (see libero_dataset.py)
   flip_images: true           # MuJoCo renders bottom-up; applied to data AND rollouts
   augment: true
   crop_ratio: 0.95            # random-crop augmentation; 1.0 disables

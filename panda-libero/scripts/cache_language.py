@@ -10,14 +10,17 @@ evaluation order can never silently disagree.
 """
 
 import argparse
-import json
 from pathlib import Path
 
 import h5py
 import numpy as np
 
+from robobench.data.libero_dataset import INSTRUCTION_SOURCES, read_instruction
+
 
 def instructions_from_hdf5(root: Path, suites) -> list:
+    """Both spellings of every instruction — the file's own and the filename's — so
+    the cache covers whichever `data.instruction_source` a run picks."""
     found = []
     for suite in suites:
         d = root / suite
@@ -25,11 +28,7 @@ def instructions_from_hdf5(root: Path, suites) -> list:
             raise SystemExit(f"suite directory not found: {d}")
         for p in sorted(d.glob("*.hdf5")):
             with h5py.File(p, "r") as f:
-                try:
-                    text = json.loads(f["data"].attrs["problem_info"])["language_instruction"].strip()
-                except Exception:
-                    text = p.stem.replace("_demo", "").replace("_", " ").strip()
-            found.append(text)
+                found += [read_instruction(f, p.stem, source) for source in INSTRUCTION_SOURCES]
     return found
 
 

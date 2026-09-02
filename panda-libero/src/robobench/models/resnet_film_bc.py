@@ -13,7 +13,7 @@ numbers belong to 3-7B models pretrained on Open-X and are not the same experime
 
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, List, Optional
 
 import torch
 import torch.nn as nn
@@ -108,6 +108,7 @@ class ResNetFiLMBC(BasePolicy):
         images: Dict[str, torch.Tensor],
         proprio: torch.Tensor,
         lang: torch.Tensor,
+        text: Optional[List[str]] = None,  # language arrives as the frozen embedding
     ) -> torch.Tensor:
         lang_tok = self.lang_proj(lang)
 

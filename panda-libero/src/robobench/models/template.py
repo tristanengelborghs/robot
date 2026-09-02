@@ -64,6 +64,7 @@ class TemplatePolicy(BasePolicy):
         images: Dict[str, torch.Tensor],   # camera -> uint8 (B, 3, H, W)
         proprio: torch.Tensor,             # (B, proprio_dim)
         lang: torch.Tensor,                # (B, lang_dim) frozen embedding
+        text=None,                         # list of B instruction strings; unused here
     ) -> torch.Tensor:                     # -> (B, chunk_size, action_dim) in [-1, 1]
         feats = []
         for i, cam in enumerate(self.cameras):
@@ -83,7 +84,7 @@ class TemplatePolicy(BasePolicy):
     #     return {"loss": loss, "denoise_mse": mse.detach()}
     #
     # @torch.no_grad()
-    # def predict(self, images, proprio, lang):
+    # def predict(self, images, proprio, lang, text=None):
     #     """Called once per chunk at rollout time. Run your sampler here."""
     #     ...
     #     return actions  # (B, chunk_size, action_dim)

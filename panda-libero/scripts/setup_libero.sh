@@ -62,21 +62,33 @@ echo "$RESOLVED" > .libero_commit
 # On first import LIBERO calls input() to ask where datasets should live, which
 # hangs forever under any non-interactive shell — CI, nohup, a setup script.
 # Write the config up front, pointing datasets at this repo's data/libero.
-# An existing config is never overwritten.
+# An existing config is kept if its paths still resolve. It is rewritten if they
+# do not: the file is absolute paths, so moving or renaming the checkout leaves
+# it pointing at directories that no longer exist, and the evaluator then fails
+# on the first BDDL file it opens.
 LIBERO_PKG="$LIBERO_ROOT/libero/libero"
 CONFIG_DIR="${LIBERO_CONFIG_PATH:-$HOME/.libero}"
+CONFIG="$CONFIG_DIR/config.yaml"
 mkdir -p "$CONFIG_DIR"
-if [ -f "$CONFIG_DIR/config.yaml" ]; then
-  echo "==> $CONFIG_DIR/config.yaml exists — left untouched"
-else
-  cat > "$CONFIG_DIR/config.yaml" <<YAML
+WRITE_CONFIG=1
+if [ -f "$CONFIG" ]; then
+  EXISTING=$(sed -n 's/^bddl_files: *//p' "$CONFIG")
+  if [ -n "$EXISTING" ] && [ -d "$EXISTING" ]; then
+    echo "==> $CONFIG exists and its paths resolve — left untouched"
+    WRITE_CONFIG=0
+  else
+    echo "==> $CONFIG points at '$EXISTING', which does not exist — rewriting"
+  fi
+fi
+if [ "$WRITE_CONFIG" = 1 ]; then
+  cat > "$CONFIG" <<YAML
 benchmark_root: $LIBERO_PKG
 bddl_files: $LIBERO_PKG/bddl_files
 init_states: $LIBERO_PKG/init_files
 datasets: $(pwd)/data/libero
 assets: $LIBERO_PKG/assets
 YAML
-  echo "==> wrote $CONFIG_DIR/config.yaml (datasets -> $(pwd)/data/libero)"
+  echo "==> wrote $CONFIG (datasets -> $(pwd)/data/libero)"
 fi
 
 echo

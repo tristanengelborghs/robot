@@ -1,0 +1,33 @@
+# The pretrained column on LIBERO-Goal: SmolVLM2-500M reading both cameras and the
+# instruction text, LoRA on the language model's attention, a chunked L1 action
+# head. See src/robobench/models/vla.py.
+#
+# Sized for one 24 GB GPU. image_res=512 is what the vision tower was pretrained
+# on (64 tokens per camera); 256 is ~4x cheaper per step at 16 tokens per camera
+# and is the first knob to turn if a run is too slow.
+data:
+  suites: [libero_goal]
+  image_size: 128
+
+model:
+  name: vla
+  backbone: HuggingFaceTB/SmolVLM2-500M-Video-Instruct
+  finetune: lora
+  lora_rank: 16
+  lora_alpha: 32.0
+  lora_targets: [q_proj, k_proj, v_proj, o_proj]
+  hidden_dim: 512
+  image_res: 512
+  freeze_vision: true
+  gradient_checkpointing: false
+  backbone_dtype: auto
+
+train:
+  steps: 30000
+  batch_size: 32
+  lr: 1.0e-4
+  warmup_steps: 1000
+  ema_decay: 0.999
+  amp: true
+  num_workers: 3                # the box has 4 CPUs
+  ckpt_every: 5000

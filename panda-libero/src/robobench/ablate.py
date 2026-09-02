@@ -7,6 +7,10 @@ same architecture with that input destroyed and show the score collapses.
 
 The ablation is applied identically in training and in rollout evaluation, so what
 you measure is a model that genuinely never had access to the input.
+
+`no_lang` destroys both forms the instruction takes: the frozen embedding is
+zeroed and the raw string is blanked, so a model with its own text encoder is
+ablated as thoroughly as one reading the cached vector.
 """
 
 from __future__ import annotations
@@ -29,6 +33,8 @@ def apply(batch: Dict[str, torch.Tensor], mode: str) -> Dict[str, torch.Tensor]:
 
     if mode == "no_lang":
         out["lang"] = torch.zeros_like(batch["lang"])
+        if "text" in batch:
+            out["text"] = [""] * len(batch["text"])
     elif mode == "no_proprio":
         out["proprio"] = torch.zeros_like(batch["proprio"])
     elif mode == "no_vision":
