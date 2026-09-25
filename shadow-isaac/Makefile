@@ -5,7 +5,7 @@ PY        := .venv/bin/python
 NUM_ENVS  := 4096
 ITERS     := 1000
 LEAD      := 0.08
-VIEWER    := https://isaac-fzq49bb7n.brevlab.com/viewer
+VIEWER    ?= $(or $(BREV_VIEWER_URL),https://<your-instance>.brevlab.com/viewer)
 
 .PHONY: help install test start status stop sync install-ext smoke scripted watch orient palmup pose fetch-scripts train play envs bodies tunnel kill clean
 

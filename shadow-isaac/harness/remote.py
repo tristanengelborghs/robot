@@ -24,6 +24,7 @@ The invariants below were each paid for once on the sibling project
 
 from __future__ import annotations
 
+import os
 import shlex
 
 INSTANCE = "isaac-launchable-e4cbd5"
@@ -42,8 +43,8 @@ LOG_DIR = "/workspace/logs/shadow-isaac"
 # The viewer is the Brev console URL with /viewer appended, taken from the
 # console's Access tab. It goes through Brev's proxy, which already exposes
 # port 80 and the WebRTC media port, so it needs no tunnel and no
-# security-group change.
-VIEWER_URL = "https://isaac-fzq49bb7n.brevlab.com/viewer"
+# security-group change. Set BREV_VIEWER_URL to the URL shown there.
+VIEWER_URL = os.environ.get("BREV_VIEWER_URL", "https://<your-instance>.brevlab.com/viewer")
 VIEWER_PORT = 80
 WEBRTC_PORT = 47998
 LOCAL_VIEWER_PORT = 8090

@@ -105,7 +105,7 @@ the browser VS Code terminal on the box, both running Isaac Lab's own
 headless, because a keyboard device attaches to an application window.
 
 The viewer is the instance's Brev URL with `/viewer` appended —
-`https://isaac-fzq49bb7n.brevlab.com/viewer`, from the console's **Access** tab.
+`https://<your-instance>.brevlab.com/viewer`, from the console's **Access** tab.
 That goes through Brev's proxy rather than the instance's public IP, so it needs
 no change to the security group.
 

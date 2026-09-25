@@ -122,9 +122,9 @@ Four things about that box cost time to learn, so they are encoded in
    `make tunnel` passes `ControlPath=none` to get a connection of its own.
 
 The instance's public IP changes on every restart, which is what `make start`
-runs `brev refresh` for. The repo is private, so the host clones it over
-forwarded ssh-agent (`ssh -A`) — no key or token is ever placed on rented
-hardware.
+runs `brev refresh` for. The host clones the repo over forwarded ssh-agent
+(`ssh -A`), which works for a private repo too — no key or token is ever
+placed on rented hardware.
 
 ## Recording demonstrations
 
@@ -175,7 +175,7 @@ it streams with `--livestream 2`, and that window is served to a browser.
 **Watching it.** Open the instance's Brev URL with `/viewer` on the end:
 
 ```
-https://isaac-fzq49bb7n.brevlab.com/viewer
+https://<your-instance>.brevlab.com/viewer
 ```
 
 The current URL is in the Brev console on the instance's **Access** tab, under

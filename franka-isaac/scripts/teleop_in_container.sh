@@ -61,7 +61,7 @@ Teleoperated recording -- $NUM_DEMOS demonstrations to $DATASET_FILE
 Device: $DEVICE
 
   Watch it at the instance's Brev URL with /viewer on the end, for example
-  https://isaac-fzq49bb7n.brevlab.com/viewer -- the console's Access tab has
+  https://<your-instance>.brevlab.com/viewer -- the console's Access tab has
   the current one. Isaac Sim takes a few minutes to start before the viewer
   shows anything.
 
