@@ -33,6 +33,13 @@ In-hand cube reorientation: custom environment, domain randomization, fingertip
 tactile, threaded parallel simulation, a PPO teacher on privileged state and a
 DAgger student on proprio + tactile.
 
+<img src="media/shadow_reorient_best3.gif" width="640" alt="Simulated Shadow Hand turning an orange cube to match a target orientation, with a goal counter">
+
+*The PPO teacher after ~120k environment steps (the laptop smoke run),
+deterministic, real time. These are the best 3 of 200 evaluation episodes (9, 7
+and 6 goals); the average is 1.2 goals per 5-second episode, against 0.34 for
+random actions. [Unselected episodes](https://tristanengelborghs.github.io/assets/media/shadow-reorient-unselected.mp4).*
+
 ## [franka-isaac/](franka-isaac) — learning from demonstration in Isaac Lab
 A Franka arm in Isaac Lab. Block grasping and lifting driven by human
 demonstration: teleoperation, differential IK, recorded demos validated by
